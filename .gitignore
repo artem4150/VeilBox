@@ -1,0 +1,39 @@
+# Binaries and build artifacts
+bin/
+build/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# Go build cache
+*.test
+*.out
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Package managers
+package-lock.json
+yarn.lock
+pnp.*
+
+# IDE / editor settings
+.vscode/
+.idea/
+
+# OS-specific
+ehthumbs.db
+Desktop.ini

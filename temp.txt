@@ -1,0 +1,84 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+type Profile struct {
+	UUID           string
+	Host           string
+	Port           int
+	SNI            string
+	PublicKey      string
+	ShortID        string
+	Transport      string // "grpc"|"h2"|"ws"
+	ServiceName    string
+	Flow           string
+	PacketEncoding string
+	SpiderX        string
+}
+
+func BuildConfigFromProfile(p Profile, mode string) (string, error) {
+	var tpl string
+	switch mode {
+	case "", "proxy":
+		tpl = string(TplVlessRealityGrpcProxy)
+	case "tun":
+		tpl = string(TplVlessRealityGrpcTun)
+	default:
+		return "", fmt.Errorf("unsupported mode %q", mode)
+	}
+
+	repls := map[string]string{
+		"__HOST__":         jsonEscape(p.Host),
+		"__PORT__":         strconv.Itoa(p.Port),
+		"__UUID__":         jsonEscape(p.UUID),
+		"__SNI__":          jsonEscape(p.SNI),
+		"__PUBKEY__":       jsonEscape(p.PublicKey),
+		"__SHORTID__":      jsonEscape(p.ShortID),
+		"__GRPC_SERVICE__": jsonEscape(p.ServiceName),
+		"__FLOW__":         jsonEscape(p.Flow),
+		"__PACKET_ENCODING__": func() string {
+			if p.PacketEncoding == "" {
+				return ""
+			}
+			return jsonEscape(p.PacketEncoding)
+		}(),
+	}
+
+	var out bytes.Buffer
+	out.WriteString(tpl)
+	js := out.String()
+	for k, v := range repls {
+		js = strings.ReplaceAll(js, k, v)
+	}
+	transport := strings.ToLower(p.Transport)
+	if transport == "" {
+		transport = "grpc"
+	}
+	var transportBlock string
+	var multiplexBlock string
+	switch transport {
+	case "grpc":
+		service := p.ServiceName
+		transportBlock = fmt.Sprintf(`      "transport": { "type": "grpc", "service_name": "%s", "idle_timeout": "15s", "permit_without_stream": true },`, jsonEscape(service))
+		multiplexBlock = `      "multiplex": { "enabled": true, "max_connections": 8, "min_streams": 4, "max_streams": 32 }`
+	case "tcp":
+		transportBlock = `      "transport": { "type": "tcp", "header": { "type": "none" } },`
+		multiplexBlock = `      "multiplex": { "enabled": false }`
+	default:
+		transportBlock = fmt.Sprintf(`      "transport": { "type": "%s" },`, jsonEscape(transport))
+		multiplexBlock = `      "multiplex": { "enabled": false }`
+	}
+	js = strings.ReplaceAll(js, "__TRANSPORT_BLOCK__", transportBlock)
+	js = strings.ReplaceAll(js, "__MULTIPLEX_BLOCK__", multiplexBlock)
+	return js, nil
+}
+
+func jsonEscape(s string) string {
+	repl := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	return repl.Replace(s)
+}
