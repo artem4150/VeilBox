@@ -1,39 +1,74 @@
-# Binaries and build artifacts
-bin/
-build/
-dist/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Temporary files
-*.log
-*.tmp
-*.swp
-*.swo
-*.DS_Store
+# === Общие артефакты ОС ===
+.DS_Store
 Thumbs.db
+desktop.ini
 
-# Go build cache
-*.test
-*.out
-
-# Frontend artifacts
-frontend/node_modules/
-frontend/dist/
-frontend/build/
-
-# Package managers
-package-lock.json
-yarn.lock
-pnp.*
-
-# IDE / editor settings
+# === Редакторы/IDE ===
 .vscode/
 .idea/
+*.code-workspace
 
-# OS-specific
-ehthumbs.db
-Desktop.ini
+# === Go / Wails ===
+/build/bin/
+/build/tmp/
+/build/cache/
+/build/dist/
+/dist/
+/tmp/
+/coverage.out
+
+# Не игнорируем исходники установщика и ассеты
+!build/installer/
+!build/windows/**
+
+# Исполняемые файлы в корне (артефакты сборки)
+# (ВАЖНО: core/*.exe оставляем отслеживаемыми)
+#/VeilBox.exe        # если хочешь — раскомментируй
+#/wailsapp.exe       # если хочешь — раскомментируй
+
+# === Node/Vite для фронта Wails ===
+**/node_modules/
+**/.pnpm-store/
+**/.yarn/*
+**/.yarn-cache/
+**/.parcel-cache/
+**/.vite/
+**/dist/
+
+# === Логи/БД/кэш ===
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Разрешаем хранить нужные бинарники в core, но не временные файлы
+!core/**
+core/cache.db
+core/*.log
+
+# === Тесты/отчёты ===
+/test-results/
+/reports/
+.jacocoverage/
+
+# === Секреты и env ===
+.env
+*.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.cert
+
+# === Windows/Компилятор ===
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# === Архивы ===
+*.zip
+*.7z
+*.tar
+*.gz
