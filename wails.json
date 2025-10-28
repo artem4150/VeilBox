@@ -1,13 +1,19 @@
 {
-  "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "VeilBox",
-  "outputfilename": "VeilBox",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build",
-  "frontend:dev:watcher": "npm run dev",
-  "frontend:dev:serverUrl": "auto",
-  "author": {
-    "name": "artem4150",
-    "email": "artemiygo9@gmail.com"
+  "windows": {
+    "icon": "build/windows/icon.ico",
+    "webview2": { "mode": "download" },
+    "nsis": {
+      "installerIcon": "build/windows/icon.ico",
+      "runAfterInstall": true,
+      "runAfterUninstall": false,
+      "multiLanguage": false,
+      "fileAssociation": [],
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "includes": [
+        "build/windows/installer/theme.nsh",   
+        "build/windows/installer/assets.nsh"   
+      ]
+    }
   }
 }

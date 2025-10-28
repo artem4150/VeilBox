@@ -7,6 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed frontend/dist
@@ -15,20 +16,21 @@ var assets embed.FS
 func main() {
 	app := NewApp()
 
-err := wails.Run(&options.App{
-    Title:   "VeilBox",
-    Width:   900,
-    Height:  640,
-    Logger:  logger.NewDefaultLogger(),
-    Assets:  assets,
-    OnStartup: app.Startup,
-    Bind:    []interface{}{app},
-
-    // добавь это:
-    Debug: options.Debug{
-        OpenInspectorOnStartup: true, // откроет DevTools
-    },
-})
+	err := wails.Run(&options.App{
+		Title:             "VeilBox",
+		Width:             900,
+		Height:            640,
+		Logger:            logger.NewDefaultLogger(),
+		Assets:            assets,
+		OnStartup:         app.Startup,
+		OnBeforeClose:     app.BeforeClose,
+		HideWindowOnClose: true,
+		Bind:              []interface{}{app},
+		Debug: options.Debug{
+			OpenInspectorOnStartup: true,
+		},
+		Windows: &windows.Options{},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

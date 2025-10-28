@@ -1,12 +1,6 @@
 {
   "log": { "level": "info" },
-  "dns": {
-    "servers": [
-      { "tag": "secure", "type": "https", "server": "dns.google", "domain_resolver": "local" },
-      { "tag": "local",  "type": "local" }
-    ],
-    "strategy": "prefer_ipv4"
-  },
+  "dns": __DNS_BLOCK__,
   "inbounds": [
     { "type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 10808, "sniff": true },
     { "type": "http",  "tag": "http-in",  "listen": "127.0.0.1", "listen_port": 10809, "sniff": true }
@@ -30,21 +24,11 @@ __MULTIPLEX_BLOCK__
     "default_domain_resolver": "secure",
     "auto_detect_interface": true,
     "rules": [
-      { "inbound": ["socks-in", "http-in"], "outbound": "proxy" },
-      { "ip_is_private": true, "outbound": "direct" },
-      { "rule_set": "geosite-category-ads-all", "outbound": "block" }
+__ROUTE_RULES__
     ],
     "rule_set": [
-      {
-        "tag": "geosite-category-ads-all",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-        "download_detour": "direct"
-      }
+__ROUTE_RULE_SETS__
     ]
   },
-  "experimental": {
-    "cache_file": { "enabled": true }
-  }
+  "experimental": __EXPERIMENTAL_BLOCK__
 }
