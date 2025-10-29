@@ -34,9 +34,7 @@
   <img src="docs/screenshots/main.png" alt="Main window" width="840">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/tray.png" alt="Tray menu" width="420">
-</p>
+
 
 ---
 
