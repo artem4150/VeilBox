@@ -315,7 +315,7 @@ func renderRouteSections(split *SplitTunnelSettings, region *RegionRoutingSettin
 		"type":            "remote",
 		"format":          "binary",
 		"url":             "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs",
-		"download_detour": "direct",
+		"download_detour": "proxy",
 	}
 	ruleSetsBlock := marshalListWithIndent([]map[string]any{defaultRuleSet}, "      ")
 
@@ -323,8 +323,16 @@ func renderRouteSections(split *SplitTunnelSettings, region *RegionRoutingSettin
 }
 
 func renderExperimentalBlock(settings *MetricsSettings) string {
+	cache := map[string]any{
+		"enabled":      true,
+		"path":         "__CACHE_FILE_PATH__",
+		"cache_id":     "veilbox",
+		"store_fakeip": true,
+		"store_rdrc":   true,
+		"rdrc_timeout": "7d",
+	}
 	experimental := map[string]any{
-		"cache_file": map[string]any{"enabled": true},
+		"cache_file": cache,
 	}
 	if settings != nil && settings.EnableObservatory {
 		listen := strings.TrimSpace(settings.ObservatoryListen)
@@ -352,7 +360,7 @@ func renderExperimentalBlock(settings *MetricsSettings) string {
 	}
 	b, err := json.MarshalIndent(experimental, "", "  ")
 	if err != nil {
-		return "{\n    \"cache_file\": { \"enabled\": true }\n  }"
+		return "{\n    \"cache_file\": { \"enabled\": true, \"path\": \"__CACHE_FILE_PATH__\" }\n  }"
 	}
 	return indentTailLines(string(b), "  ")
 }

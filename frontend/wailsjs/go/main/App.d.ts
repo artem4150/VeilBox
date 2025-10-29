@@ -10,6 +10,8 @@ export function Disconnect():Promise<string>;
 
 export function EnableSystemProxy():Promise<void>;
 
+export function FetchSubscription(arg1:string):Promise<main.SubscriptionFetchResult>;
+
 export function PingHost(arg1:string):Promise<number>;
 
 export function TailLogs(arg1:number):Promise<Array<string>>;

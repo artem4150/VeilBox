@@ -72,3 +72,6 @@ core/*.log
 *.7z
 *.tar
 *.gz
+
+# === Local installer builds ===
+current exe for windows/

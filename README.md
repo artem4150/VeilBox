@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/branding/logo.png" alt="VeilBox" width="120" />
+  <img src="docs/branding/logo.png" alt="VeilBox logo" width="120">
 </p>
 
-<h1 align="center">VeilBox — лёгкий VPN-клиент для Windows (Wails + sing-box)</h1>
+<h1 align="center">VeilBox - Windows client for sing-box (Wails + React)</h1>
 
 <p align="center">
   <a href="https://go.dev/"><img alt="Go" src="https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go"></a>
@@ -11,70 +11,61 @@
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
-> <strong>Коротко:</strong> GUI на Wails, ядро — sing-box., кэш и логи лежат в профиле пользователя: <code>%LOCALAPPDATA%\VeilBox</code>. Инсталлятор — Inno Setup.
+> VeilBox is a Windows desktop client that wraps sing-box with a modern Wails (Go + React) UI. Runtime assets live in `%LOCALAPPDATA%\VeilBox`, the installer is produced with Inno Setup.
 
 ---
 
-## 📸 Скриншоты
+## Highlights
 
+- Import VLESS Reality URIs manually with live preview and country detection.
+- Subscribe to remote lists (`https://<host>/sub/...`) with automatic parsing, traffic usage display, and expiry tracking.
+- Update subscriptions with a single click while keeping the currently selected node.
+- Import configuration or subscription links directly from the clipboard.
+- Automatically enable or disable the system proxy when connecting or disconnecting.
+- Show live connection metrics: ping, session duration, public IP, and location.
+- Manage split tunneling, DNS upstreams, and region routing rules from the UI.
+- Tray integration for quick access while the app runs in the background.
 
+---
+
+## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/main.png" alt="Главное окно" width="840">
+  <img src="docs/screenshots/main.png" alt="Main window" width="840">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/tray.png" alt="Иконка в трее и меню" width="420">
+  <img src="docs/screenshots/tray.png" alt="Tray menu" width="420">
 </p>
 
 ---
 
-## ✨ Возможности
-
-* VLESS Reality gRPC (proxy/tun) с готовыми шаблонами конфигов
-* Запуск ядра <strong>без консольного окна</strong> (CREATE_NO_WINDOW)
-* Работа <strong>без прав админа</strong>: кэш/логи в <code>%LOCALAPPDATA%\VeilBox</code>
-* Трей-иконка, кнопки Connect/Disconnect, вывод логов в UI
-* Установщик Inno Setup, чистая деинсталляция
-
----
-
-## 🗂 Структура
+## Repository layout
 
 ```
 VeilBox/
-├─ app.go
-├─ runner.go                # скрытый запуск sing-box, рабочая dir = %LOCALAPPDATA%\VeilBox
-├─ logs.go                  # RingBuffer для логов (использует app.go)
-├─ tray_windows.go
-├─ proxy_windows.go
-├─ main.go
-├─ core/                    # ядро: sing-box.exe, wintun.dll
-├─ embed_templates/
-│  ├─ vless_reality_grpc_proxy.json
-│  └─ vless_reality_grpc_tun.json
-├─ build/
-│  ├─ windows/              # ассеты инсталлятора (иконки/картинки)
-│  └─ installer/
-│     └─ veilbox.iss        # скрипт Inno Setup (SourceDir=..\..)
-└─ docs/
-   ├─ branding/logo.png
-   └─ screenshots/
-      ├─ main.png
-      └─ tray.png
+|-- app.go                 # Wails entry point, subscription fetcher, system proxy control, logs
+|-- runner.go              # sing-box launcher, config management in %LOCALAPPDATA%
+|-- frontend/              # React application (TypeScript + Vite)
+|   |-- src/App.tsx        # Main UI, profile and subscription flows
+|   `-- wailsjs/           # Auto-generated bindings for Go <-> TS
+|-- core/                  # sing-box.exe and native dependencies (wintun.dll, ...)
+|-- build/                 # Windows resources and Inno Setup scripts
+|   `-- installer/veilbox.iss
+`-- docs/                  # Branding assets and screenshots
 ```
 
 ---
 
-## 🧰 Требования
+## Prerequisites
 
-* <strong>Go</strong> 1.22+
-* <strong>Node.js</strong> 18+ (для фронта Wails)
-* <strong>Microsoft Build Tools (MSVC)</strong>
-* <strong>WebView2 Runtime</strong> (режим download в <code>wails.json</code> уже включён)
-* <strong>Inno Setup</strong> (для сборки инсталлятора)
+- Go 1.22+
+- Node.js 18+
+- Microsoft Build Tools (MSVC)
+- WebView2 Runtime (downloaded automatically; override in `wails.json` if needed)
+- Inno Setup (to build the installer)
 
-Проверка окружения:
+Verify your environment:
 
 ```powershell
 wails doctor
@@ -82,137 +73,79 @@ wails doctor
 
 ---
 
-## 🛠 Сборка приложения
+## Developer quick start
 
 ```powershell
-# из корня репозитория
-wails build -clean
+# install frontend dependencies
+cd frontend
+npm install
 
-# результат: build/bin/VeilBox.exe (или wailsapp.exe — см. ниже раздел Инсталлятор)
-```
-
-> Если бинарник называется <code>wailsapp.exe</code>, можно либо переименовать его в <code>VeilBox.exe</code>,
-> либо оставить как есть — в инсталляторе предусмотрен <code>DestName: VeilBox.exe</code>.
-
----
-
-## 📦 Сборка установщика (Inno Setup)
-
-Скрипт: <code>build/installer/veilbox.iss</code>
-
-Важные моменты:
-
-* В начале файла установлена базовая директория:
-
-  ```ini
-  SourceDir=..\..
-  ```
-* Иконка берётся из: <code>build\windows\icon.ico</code>
-* Папка данных пользователя будет создана: <code>{localappdata}\VeilBox</code>
-* Ядро копируется в <code>{app}\core</code>
-
-Пример ключевых секций:
-
-```ini
-[Setup]
-SourceDir=..\..
-SetupIconFile=build\windows\icon.ico
-OutputDir=build\dist
-OutputBaseFilename=VeilBoxSetup
-PrivilegesRequired=admin
-
-[Files]
-; Вариант A: если после сборки есть build\bin\VeilBox.exe
-Source: "build\bin\VeilBox.exe"; DestDir: "{app}"; Flags: ignoreversion
-
-; Вариант B: если билд даёт wailsapp.exe — устанавливаем как VeilBox.exe
-; Source: "build\bin\wailsapp.exe"; DestDir: "{app}"; DestName: "VeilBox.exe"; Flags: ignoreversion
-
-; Ядро
-Source: "core\*"; DestDir: "{app}\core"; Flags: recursesubdirs createallsubdirs ignoreversion
-
-[Dirs]
-Name: "{localappdata}\VeilBox"
-
-[Icons]
-Name: "{autoprograms}\VeilBox"; Filename: "{app}\VeilBox.exe"
-Name: "{autodesktop}\VeilBox";  Filename: "{app}\VeilBox.exe"; Tasks: desktopicon
-
-[Run]
-Filename: "{app}\VeilBox.exe"; Description: "Запустить VeilBox"; Flags: nowait postinstall skipifsilent
-```
-
-Сборка:
-
-1. Открой <code>build/installer/veilbox.iss</code> в <strong>Inno Setup Compiler</strong>
-2. <strong>Compile</strong> → <code>build/dist/VeilBoxSetup.exe</code>
-
----
-
-## ⚙️ Как это работает под капотом
-
-* <code>runner.go</code> сохраняет активный конфиг в:
-
-  ```
-  %LOCALAPPDATA%\VeilBox\sb_config.json
-  ```
-* Запускает <code>{app}\core\sing-box.exe</code> с рабочей директорией:
-
-  ```
-  %LOCALAPPDATA%\VeilBox
-  ```
-
-  Благодаря этому <code>cache.db</code> и логи пишутся туда же, и не нужны права администратора.
-* Процесс запускается с флагами <code>CREATE_NO_WINDOW</code> + <code>HideWindow</code>, поэтому <strong>чёрного окна нет</strong>.
-* Логи ядра читаются пайпами и прокидываются в UI; в проекте есть <code>RingBuffer</code> для последних N строк.
-
----
-
-## 🧪 Режим разработки
-
-```powershell
+# go back to the repo root and launch dev mode
+cd ..
 wails dev
 ```
 
-Полная сборка:
+The app opens inside WebView2; changes in `frontend/src` hot-reload automatically.
+
+---
+
+## Importing profiles and subscriptions
+
+1. Click **Import config** (or **Import from clipboard** if you already copied a link).
+2. Paste either a VLESS URI (`vless://...`) or a subscription URL (`https://<host>/sub/...`).
+3. VLESS inputs show a preview; subscriptions create a grouped list of nodes.
+4. After saving, the subscription card shows usage counters and last update time. Press **Refresh** to fetch the latest nodes.
+5. Traffic limits come from the `subscription-userinfo` header when supplied by the provider.
+
+---
+
+## Building a release
 
 ```powershell
 wails build -clean
 ```
 
+- Output binary: `build/bin/VeilBox.exe` (rename `wailsapp.exe` if required).
+
+Create the installer with Inno Setup:
+
+1. Open `build/installer/veilbox.iss` in Inno Setup Compiler.
+2. Hit **Compile** - the installer will appear under `build/dist/VeilBoxSetup.exe`.
+
 ---
 
-## 🧯 Траблшутинг
+## Useful commands
 
-**<code>FATAL ... open cache.db: Access is denied</code>**
-Кэш создавался в <code>C:\Program Files...</code>. В новой версии рабочая папка ядра — <code>%LOCALAPPDATA%\VeilBox</code>.
-Проверь, что используешь актуальный <code>runner.go</code>.
-Путь к кэшу можно также явно указать в JSON:
+```powershell
+# run the UI without packaging
+wails dev
 
-```json
-"experimental": { "cache_file": "%LOCALAPPDATA%\\VeilBox\\cache.db" }
-```
-
-**Появляется чёрное консольное окно**
-Убедись, что sing-box запускается именно кодом из <code>runner.go</code>, где установлены: <code>SysProcAttr{ HideWindow: true, CreationFlags: CREATE_NO_WINDOW }</code>.
-
-**Ярлык в Пуск/на рабочем столе не работает**
-Проверь, что в инсталляторе конечный бинарь называется <code>VeilBox.exe</code>.
-Если билд даёт <code>wailsapp.exe</code>, используй опцию:
-
-```ini
-DestName: "VeilBox.exe"
+# rebuild the frontend bundle
+npm --prefix frontend run build
 ```
 
 ---
 
-## 🧾 Лицензия
+## Troubleshooting
 
-MIT — см. файл <code>LICENSE</code>.
+**`FATAL ... open cache.db: Access is denied`**  
+Move the project to a user-writable folder (for example `C:\Users\your-name\VeilBox`) and make sure `%LOCALAPPDATA%\VeilBox` is accessible.
+
+**sing-box console window pops up**  
+Ensure `runner.go` launches the process with `HideWindow` and `CREATE_NO_WINDOW`.
+
+**Subscription refresh fails**  
+Check that the URL is reachable from Windows. VeilBox downloads subscriptions directly, so it needs working connectivity (or a preconfigured proxy) at refresh time.
 
 ---
 
-## 🙌 Благодарности
+## License
 
-* <a href="https://wails.io/">Wails</a> — за отличный фреймворк для гибридных десктоп-приложений
-* <a href="https://sing-box.sagernet.org/">sing-box</a> — за мощное VPN-ядро
+VeilBox is released under the [MIT](LICENSE) license.
+
+---
+
+## Credits
+
+- [Wails](https://wails.io/) - cross-platform desktop framework for Go developers.
+- [sing-box](https://sing-box.sagernet.org/) - VPN/proxy core that powers VeilBox.

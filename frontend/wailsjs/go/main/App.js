@@ -18,6 +18,10 @@ export function EnableSystemProxy() {
   return window['go']['main']['App']['EnableSystemProxy']();
 }
 
+export function FetchSubscription(arg1) {
+  return window['go']['main']['App']['FetchSubscription'](arg1);
+}
+
 export function PingHost(arg1) {
   return window['go']['main']['App']['PingHost'](arg1);
 }

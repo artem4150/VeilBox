@@ -59,6 +59,11 @@ type ConnectRequest struct {
 	Metrics       *MetricsSettings       `json:"Metrics"`
 }
 
+type SubscriptionFetchResult struct {
+	Body     string `json:"body"`
+	UserInfo string `json:"userInfo"`
+}
+
 func (a *App) Connect(req ConnectRequest) (string, error) {
 	prof, err := ParseVLESS(req.VLESSURI)
 	if err != nil {
@@ -107,6 +112,41 @@ func (a *App) PingHost(host string) (int64, error) {
 	t0 := time.Now()
 	_ = host
 	return time.Since(t0).Milliseconds(), nil
+}
+
+func (a *App) FetchSubscription(url string) (SubscriptionFetchResult, error) {
+	target := strings.TrimSpace(url)
+	if target == "" {
+		return SubscriptionFetchResult{}, fmt.Errorf("empty subscription url")
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return SubscriptionFetchResult{}, err
+	}
+	req.Header.Set("Accept", "text/plain, application/octet-stream;q=0.9, */*;q=0.8")
+	req.Header.Set("User-Agent", "VeilBox/1.0 (+https://github.com/)")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return SubscriptionFetchResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return SubscriptionFetchResult{}, fmt.Errorf("subscription request failed: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SubscriptionFetchResult{}, err
+	}
+	return SubscriptionFetchResult{
+		Body:     string(body),
+		UserInfo: resp.Header.Get("subscription-userinfo"),
+	}, nil
 }
 
 func (a *App) setConnected(connected bool) {
