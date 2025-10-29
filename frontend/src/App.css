@@ -2,6 +2,13 @@
   box-sizing: border-box;
 }
 
+.brand__mark { width: auto; display:inline-block; vertical-align: middle; transition: opacity .15s; }
+.brand__mark--icon { height: 24px; }   /* свернутый сайдбар */
+.brand__mark--full { height: 28px; }   /* развернутый сайдбар */
+
+.sidebar--collapsed .brand__tagline { display: none; } /* на всякий случай */
+
+
 .app-shell {
   display: flex;
   min-height: 100vh;
@@ -93,7 +100,12 @@
   background: #0f172a;
   color: #ffffff;
 }
-
+.brand__mark{
+  display:inline-block;
+  height:56px;   /* или что нужно */
+  width:auto;
+  vertical-align:middle;
+}
 .nav__bullet {
   width: 10px;
   height: 10px;
@@ -218,6 +230,16 @@
   box-shadow: 0 30px 60px rgba(37, 99, 235, 0.25);
 }
 
+.connection-banner--progress {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  box-shadow: 0 25px 50px rgba(15, 23, 42, 0.35);
+}
+
+.connection-banner--error {
+  background: linear-gradient(135deg, #7f1d1d, #450a0a);
+  box-shadow: 0 25px 50px rgba(127, 29, 29, 0.35);
+}
+
 .connection-banner__status {
   display: flex;
   align-items: center;
@@ -272,6 +294,29 @@
 .connection-indicator--online {
   background: #22c55e;
   box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.26);
+}
+
+.connection-indicator--progress {
+  background: #f97316;
+  box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.25);
+  animation: indicator-pulse 1.2s ease-in-out infinite;
+}
+
+.connection-indicator--error {
+  background: #ef4444;
+  box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.3);
+}
+
+@keyframes indicator-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .btn {

@@ -10,7 +10,8 @@ import { EventsOn } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
 
 import "./App.css";
-
+import logoMarkUrl from './assets/veilbox-mark.svg';   // без текста (для свернутого)
+import logoFullUrl from './assets/veilbox-full.svg';   // полный логотип (для развернутого)
 type NavKey = "dashboard" | "logs" | "settings";
 
 type ProfileInfo = {
@@ -99,12 +100,16 @@ type ThroughputSample = {
   up: number;
 };
 
+type ConnectionState = "idle" | "connecting" | "connected" | "error";
+
 function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
   return Math.random().toString(36).slice(2, 10);
 }
+
+
 
 function formatDuration(ms: number): string {
   if (ms <= 0) {
@@ -297,6 +302,17 @@ function RefreshIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 5a1 1 0 0 1 1 1v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5H6a1 1 0 1 1 0-2h5V6a1 1 0 0 1 1-1z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function ShieldIcon() {
   return (
     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -320,6 +336,10 @@ export default function App(): JSX.Element {
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState("00:00:00");
   const [pingMs, setPingMs] = useState<number | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+  const [connectionMessage, setConnectionMessage] = useState(
+    "Choose a profile and connect to enable secure browsing."
+  );
   const [logs, setLogs] = useState<string[]>([]);
   const [publicIp, setPublicIp] = useState("-");
   const [publicLocation, setPublicLocation] = useState("-");
@@ -373,6 +393,31 @@ export default function App(): JSX.Element {
     }, tone === "error" ? 6000 : 4000);
     toastTimersRef.current.set(id, timeout);
   }, []);
+
+  const updateConnectionState = useCallback(
+    (state: ConnectionState, message?: string) => {
+      setConnectionState(state);
+      if (message) {
+        setConnectionMessage(message);
+        return;
+      }
+      switch (state) {
+        case "connected":
+          setConnectionMessage("Connection is active.");
+          break;
+        case "connecting":
+          setConnectionMessage("Establishing a secure tunnel...");
+          break;
+        case "error":
+          setConnectionMessage("Connection error. Check the profile and try again.");
+          break;
+        default:
+          setConnectionMessage("Ready to connect.");
+          break;
+      }
+    },
+    []
+  );
 
   const resolveCountry = useCallback(async (host: string): Promise<string> => {
     const key = host?.trim().toLowerCase();
@@ -773,6 +818,7 @@ export default function App(): JSX.Element {
           }
           setConnected(true);
           setConnectedAt(Date.now());
+          updateConnectionState("connected", "Connection restored from tray.");
         } else if (value === "disconnected") {
           if (connected) {
             pushToast("Connection stopped");
@@ -780,6 +826,7 @@ export default function App(): JSX.Element {
           setConnected(false);
           setConnectedAt(null);
           setPingMs(null);
+          updateConnectionState("idle", "Disconnected.");
         }
       })
     );
@@ -829,7 +876,7 @@ export default function App(): JSX.Element {
         }
       });
     };
-  }, [connected, openProfileModal, pushToast]);
+  }, [connected, openProfileModal, pushToast, updateConnectionState]);
 
   useEffect(() => {
     if (!connected) {
@@ -923,6 +970,7 @@ export default function App(): JSX.Element {
   const connectNow = async () => {
     if (!selectedProfile) {
       openProfileModal();
+      updateConnectionState("idle", "Select a profile to connect.");
       return;
     }
     const basePayload: Record<string, unknown> = {
@@ -947,6 +995,7 @@ export default function App(): JSX.Element {
     }
 
     try {
+      updateConnectionState("connecting", `Connecting to ${selectedProfile.label}...`);
       const connectionPayload = main.ConnectRequest.createFrom(basePayload);
       await Connect(connectionPayload);
       await EnableSystemProxy();
@@ -958,31 +1007,44 @@ export default function App(): JSX.Element {
       setTimeout(() => {
         void refreshPublicIp();
       }, 1000);
+      updateConnectionState("connected", `Connected to ${selectedProfile.label}.`);
       pushToast(`Connected to ${selectedProfile.label}`);
     } catch (error: any) {
+      setConnected(false);
+      setConnectedAt(null);
+      setPingMs(null);
       const message = error instanceof Error ? error.message : String(error);
+      updateConnectionState("error", message);
       pushToast(`Connect failed: ${message}`, "error");
     }
   };
 
   const disconnectNow = async () => {
+    let hadError = false;
     try {
       await Disconnect();
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
+      hadError = true;
+      updateConnectionState("error", message);
       pushToast(`Disconnect failed: ${message}`, "error");
     } finally {
       try {
         await DisableSystemProxy();
       } catch (error: any) {
         const message = error instanceof Error ? error.message : String(error);
+        hadError = true;
+        updateConnectionState("error", message);
         pushToast(`Disable proxy failed: ${message}`, "error");
       }
       setConnected(false);
       setConnectedAt(null);
       setPingMs(null);
       await refreshPublicIp();
-      pushToast("Disconnected");
+      if (!hadError) {
+        updateConnectionState("idle", "Disconnected. Ready to connect.");
+        pushToast("Disconnected");
+      }
     }
   };
 
@@ -1041,7 +1103,16 @@ export default function App(): JSX.Element {
   );
 
   const connectionSettings = useMemo(() => {
+    const statusLabel =
+      connectionState === "connected"
+        ? "Connected"
+        : connectionState === "connecting"
+        ? "Connecting"
+        : connectionState === "error"
+        ? "Error"
+        : "Disconnected";
     const base = [
+      { label: "Status", value: `${statusLabel}${connectionMessage ? ` — ${connectionMessage}` : ""}` },
       { label: "Mode", value: "System Proxy" },
       { label: "Public IP", value: publicIp },
       { label: "Location", value: publicLocation },
@@ -1085,6 +1156,8 @@ export default function App(): JSX.Element {
       { label: "Short ID", value: selectedProfile.info.shortId || "-" }
     ];
   }, [
+    connectionMessage,
+    connectionState,
     dnsForm,
     dnsServerCount,
     metricsForm,
@@ -1099,33 +1172,58 @@ export default function App(): JSX.Element {
     ? `${selectedProfile.info.host}:${selectedProfile.info.port}`
     : "-";
 
-const renderDashboard = () => (
-  <div className="dashboard">
-      <section className={`panel connection-banner ${connected ? "connection-banner--online" : ""}`}>
+const renderDashboard = () => {
+  const isConnected = connectionState === "connected";
+  const isConnecting = connectionState === "connecting";
+  const bannerClass = ["panel", "connection-banner"];
+  if (isConnected) {
+    bannerClass.push("connection-banner--online");
+  } else if (connectionState === "error") {
+    bannerClass.push("connection-banner--error");
+  } else if (isConnecting) {
+    bannerClass.push("connection-banner--progress");
+  }
+  const indicatorClass = [
+    "connection-indicator",
+    isConnected
+      ? "connection-indicator--online"
+      : connectionState === "error"
+      ? "connection-indicator--error"
+      : isConnecting
+      ? "connection-indicator--progress"
+      : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const showServerMeta = selectedProfile && (isConnected || isConnecting);
+
+  return (
+    <div className="dashboard">
+      <section className={bannerClass.filter(Boolean).join(" ")}>
         <div className="connection-banner__status">
-          <span className={`connection-indicator ${connected ? "connection-indicator--online" : ""}`} />
+          <span className={indicatorClass} />
           <div>
             <p className="connection-banner__title">
-              {connected ? "Secure tunnel is active" : "Ready to connect"}
+              {connectionState === "connected"
+                ? "Secure tunnel is active"
+                : connectionState === "connecting"
+                ? "Connecting..."
+                : connectionState === "error"
+                ? "Connection issue"
+                : "Disconnected"}
             </p>
-            <span className="connection-banner__subtitle">
-              {connected
-                ? `Connected to ${selectedProfile?.label ?? "profile"} via sing-box core.`
-                : "Choose a profile and connect to enable secure browsing."}
-            </span>
+            <span className="connection-banner__subtitle">{connectionMessage}</span>
           </div>
         </div>
         <div className="connection-banner__meta">
           <div>
             <span className="meta-label">Server</span>
-            <span className="meta-value">{connected && selectedProfile ? serverHost : "-"}</span>
+            <span className="meta-value">{showServerMeta ? serverHost : "-"}</span>
           </div>
-          <div>
+          {/* <div>
             <span className="meta-label">Server Country</span>
-            <span className="meta-value">
-              {connected && selectedProfile ? serverCountry : "-"}
-            </span>
-          </div>
+            <span className="meta-value">{showServerMeta ? serverCountry : "-"}</span>
+          </div> */}
           <div>
             <span className="meta-label">Current IP</span>
             <span className="meta-value">{publicIp}</span>
@@ -1201,48 +1299,54 @@ const renderDashboard = () => (
             <span className="stats-card__label">System proxy</span>
             <span className="stats-card__value">{connected ? "Enabled" : "Disabled"}</span>
           </article>
-          <article className="stats-card">
-            <span className="stats-card__label">Download</span>
-            <span className="stats-card__value">
-              {latestThroughput ? formatRate(latestThroughput.down) : "-"}
-            </span>
-          </article>
-          <article className="stats-card">
-            <span className="stats-card__label">Upload</span>
-            <span className="stats-card__value">
-              {latestThroughput ? formatRate(latestThroughput.up) : "-"}
-            </span>
-          </article>
+          {isConnected ? (
+            <>
+              {/* <article className="stats-card">
+                <span className="stats-card__label">Download</span>
+                <span className="stats-card__value">
+                  {latestThroughput ? formatRate(latestThroughput.down) : "-"}
+                </span>
+              </article>
+              <article className="stats-card">
+                <span className="stats-card__label">Upload</span>
+                <span className="stats-card__value">
+                  {latestThroughput ? formatRate(latestThroughput.up) : "-"}
+                </span>
+              </article> */}
+            </>
+          ) : null}
         </div>
-        <div className="chart">
-          <div className="chart__header">
-            <span className="chart__title">Throughput</span>
-            <div className="chart__summary">
-              <span>&darr; {latestThroughput ? formatRate(latestThroughput.down) : "-"}</span>
-              <span>&uarr; {latestThroughput ? formatRate(latestThroughput.up) : "-"}</span>
+        {/* {isConnected ? (
+          <div className="chart">
+            <div className="chart__header">
+              <span className="chart__title">Throughput</span>
+              <div className="chart__summary">
+                <span>&darr; {latestThroughput ? formatRate(latestThroughput.down) : "-"}</span>
+                <span>&uarr; {latestThroughput ? formatRate(latestThroughput.up) : "-"}</span>
+              </div>
+            </div>
+            <div className="chart__body">
+              {throughput.length ? (
+                <svg
+                  className="chart__svg"
+                  width={CHART_WIDTH}
+                  height={CHART_HEIGHT}
+                  viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+                  preserveAspectRatio="none"
+                >
+                  <path className="chart__line chart__line--down" d={throughputPathDown} />
+                  <path className="chart__line chart__line--up" d={throughputPathUp} />
+                </svg>
+              ) : (
+                <div className="chart__placeholder">
+                  {metricsForm.enableObservatory
+                    ? "Waiting for stats..."
+                    : "Enable observatory metrics in Settings to see throughput."}
+                </div>
+              )}
             </div>
           </div>
-          <div className="chart__body">
-            {throughput.length ? (
-              <svg
-                className="chart__svg"
-                width={CHART_WIDTH}
-                height={CHART_HEIGHT}
-                viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-                preserveAspectRatio="none"
-              >
-                <path className="chart__line chart__line--down" d={throughputPathDown} />
-                <path className="chart__line chart__line--up" d={throughputPathUp} />
-              </svg>
-            ) : (
-              <div className="chart__placeholder">
-                {metricsForm.enableObservatory
-                  ? "Waiting for stats..."
-                  : "Enable observatory metrics in Settings to see throughput."}
-              </div>
-            )}
-          </div>
-        </div>
+        ) : null} */}
         <div className="settings-list">
           {connectionSettings.map((item) => (
             <div key={item.label} className="settings-list__item">
@@ -1257,29 +1361,20 @@ const renderDashboard = () => (
         <header className="panel__header">
           <h2>Profiles</h2>
           <div className="panel__actions">
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={splitEnabled}
-              onChange={(event) => handleSplitToggle(event.target.checked)}
-            />
-            <span className="toggle__slider" />
-            <span className="toggle__text">Split tunneling</span>
-          </label>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => {
-              if (selectedProfile) {
-                measurePing(selectedProfile.info.sni || selectedProfile.info.host);
-              }
-            }}
-            disabled={!selectedProfile}
-          >
-            <RefreshIcon />
-            Refresh ping
-          </button>
-        </div>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={splitEnabled}
+                onChange={(event) => handleSplitToggle(event.target.checked)}
+              />
+              <span className="toggle__slider" />
+              <span className="toggle__text">Split tunneling</span>
+            </label>
+            <button className="ghost-button" type="button" onClick={() => openProfileModal()}>
+              <PlusIcon />
+              Add profiles
+            </button>
+          </div>
         </header>
         {profiles.length === 0 ? (
           <div className="empty-state">
@@ -1341,6 +1436,7 @@ const renderDashboard = () => (
       </section>
   </div>
 );
+};
 
 const renderSettings = () => (
   <div className="settings-page">
@@ -1675,10 +1771,18 @@ const renderLogs = () => (
         >
           {sidebarCollapsed ? ">" : "<"}
         </button>
-        <div className="brand">
-          <span className="brand__mark">VeilBox</span>
-          <span className="brand__tagline">Reality / VLESS</span>
-        </div>
+<div className="brand">
+  <img
+    src={sidebarCollapsed ? logoMarkUrl : logoFullUrl}
+    alt="VeilBox"
+    className={`brand__mark ${sidebarCollapsed ? "brand__mark--icon" : "brand__mark--full"}`}
+    height={28}          // управление размером по высоте, ширина сама подстроится
+    decoding="async"
+  />
+  {!sidebarCollapsed && (
+    <span className="brand__tagline">Reality / VLESS</span>
+  )}
+</div>
         <nav className="nav">
           {NAV_ITEMS.map((item) => (
             <button
