@@ -28,6 +28,14 @@
 
 ---
 
+## Installation
+
+To install, go to the "current exe for windows" folder,
+where the installation file with the current version of the program is located.
+Just run it
+
+---
+
 ## Screenshots
 
 <p align="center">
