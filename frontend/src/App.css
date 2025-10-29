@@ -213,6 +213,8 @@
 .panel__actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .connection-banner {
@@ -362,8 +364,10 @@
 .ghost-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 18px;
+  min-height: 44px;
   border-radius: 12px;
   border: 1px solid rgba(15, 23, 42, 0.12);
   background: rgba(255, 255, 255, 0.65);
@@ -371,6 +375,15 @@
   cursor: pointer;
   font-weight: 600;
   transition: border 0.2s ease, background 0.2s ease;
+}
+
+.ghost-button .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.panel__actions .ghost-button {
+  min-width: 170px;
 }
 
 .ghost-button:hover {
@@ -615,6 +628,11 @@
 }
 
 .chip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
   border: 1px solid rgba(15, 23, 42, 0.18);
   border-radius: 999px;
   background: rgba(248, 250, 252, 0.9);
@@ -651,6 +669,125 @@
   color: #1d4ed8;
   font-size: 0.75rem;
   font-weight: 600;
+}
+
+.profile-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.profile-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-group__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.subscription-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.subscription-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+}
+
+.subscription-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.subscription-card__header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(15, 23, 42, 0.9);
+}
+
+.subscription-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+.subscription-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.subscription-card__usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.subscription-card__usage-label {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.subscription-card__usage-value {
+  display: block;
+  margin-top: 4px;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.subscription-card__profiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.subscription-card__error {
+  margin-top: 8px;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.subscription-card__empty {
+  padding: 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: rgba(15, 23, 42, 0.6);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.profile-card--compact {
+  padding: 16px;
+}
+
+.profile-card--compact .profile-card__header h3 {
+  font-size: 0.95rem;
+}
+
+.modal__hint {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: rgba(15, 23, 42, 0.6);
 }
 
 .empty-state {
@@ -1038,4 +1175,3 @@
   align-items: center;
   gap: 12px;
 }
-

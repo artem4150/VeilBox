@@ -4,7 +4,8 @@ import {
   Disconnect,
   EnableSystemProxy,
   DisableSystemProxy,
-  TailLogs
+  TailLogs,
+  FetchSubscription
 } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import { main } from "../wailsjs/go/models";
@@ -27,11 +28,37 @@ type ProfileInfo = {
   country: string;
 };
 
+type ProfileOrigin =
+  | { type: "manual" }
+  | {
+      type: "subscription";
+      subscriptionId: string;
+    };
+
 type StoredProfile = {
   id: string;
   label: string;
   uri: string;
   info: ProfileInfo;
+  origin?: ProfileOrigin;
+};
+
+type SubscriptionUsage = {
+  upload: number;
+  download: number;
+  total?: number;
+  expire?: number;
+};
+
+type StoredSubscription = {
+  id: string;
+  label: string;
+  url: string;
+  createdAt: number;
+  lastUpdatedAt: number | null;
+  lastError: string | null;
+  profileIds: string[];
+  usage: SubscriptionUsage | null;
 };
 
 const NAV_ITEMS: { key: NavKey; label: string }[] = [
@@ -41,6 +68,7 @@ const NAV_ITEMS: { key: NavKey; label: string }[] = [
 ];
 
 const PROFILES_KEY = "veilbox.profiles";
+const SUBSCRIPTIONS_KEY = "veilbox.subscriptions";
 const SELECTED_KEY = "veilbox.selectedProfile";
 const CHART_WIDTH = 320;
 const CHART_HEIGHT = 80;
@@ -175,6 +203,133 @@ function parseVless(uri: string): ProfileInfo | null {
   } catch {
     return null;
   }
+}
+
+function isSubscriptionProfile(
+  profile: StoredProfile
+): profile is StoredProfile & { origin: { type: "subscription"; subscriptionId: string } } {
+  return profile.origin?.type === "subscription";
+}
+
+function isManualProfile(profile: StoredProfile): boolean {
+  return !profile.origin || profile.origin.type === "manual";
+}
+
+function formatBytes(value?: number | null): string {
+  if (!Number.isFinite(value ?? NaN) || value == null || value < 0) {
+    return "-";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let result = value;
+  let unitIndex = 0;
+  while (result >= 1024 && unitIndex < units.length - 1) {
+    result /= 1024;
+    unitIndex += 1;
+  }
+  const precision = result >= 100 ? 0 : result >= 10 ? 1 : 2;
+  return `${result.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatTimestamp(value?: number | null): string {
+  if (!Number.isFinite(value ?? NaN) || value == null || value <= 0) {
+    return "-";
+  }
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "-";
+  }
+}
+
+function isSubscriptionUri(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function deriveSubscriptionLabel(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    return url.hostname || url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function deriveLabelFromInput(value: string): string {
+  const trimmed = value.trim();
+  if (isSubscriptionUri(trimmed)) {
+    return deriveSubscriptionLabel(trimmed);
+  }
+  const parsed = parseVless(trimmed);
+  return parsed?.nodeName ?? "";
+}
+
+function parseSubscriptionUserinfo(header: string | null): SubscriptionUsage | null {
+  if (!header) {
+    return null;
+  }
+  const parts = header
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) {
+    return null;
+  }
+  const usage: Partial<SubscriptionUsage> & { expire?: number } = {};
+  for (const part of parts) {
+    const [keyRaw, valueRaw] = part.split("=");
+    if (!keyRaw || !valueRaw) {
+      continue;
+    }
+    const key = keyRaw.trim().toLowerCase();
+    const numeric = Number(valueRaw.trim());
+    if (!Number.isFinite(numeric)) {
+      continue;
+    }
+    if (key === "upload") {
+      usage.upload = numeric;
+    } else if (key === "download") {
+      usage.download = numeric;
+    } else if (key === "total") {
+      usage.total = numeric;
+    } else if (key === "expire") {
+      usage.expire = numeric > 0 ? numeric * 1000 : undefined;
+    }
+  }
+  if (usage.upload == null && usage.download == null && usage.total == null && usage.expire == null) {
+    return null;
+  }
+  return {
+    upload: usage.upload ?? 0,
+    download: usage.download ?? 0,
+    total: usage.total,
+    expire: usage.expire
+  };
+}
+
+function decodeSubscriptionPayload(body: string): string[] {
+  let decoded = body.trim();
+  if (!decoded) {
+    return [];
+  }
+  const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (decoded.includes("://")) {
+      break;
+    }
+    const compact = decoded.replace(/\s+/g, "");
+    if (!compact || !base64Pattern.test(compact)) {
+      break;
+    }
+    try {
+      decoded = atob(compact);
+    } catch {
+      break;
+    }
+  }
+  return decoded
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function parseInputList(raw: string): string[] {
@@ -313,6 +468,17 @@ function PlusIcon() {
   );
 }
 
+function ClipboardIcon() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M9 2a2 2 0 0 0-2 2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1a2 2 0 0 0-2-2H9zm0 2h6v2H9V4zm8 4v12H7V8h10z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function ShieldIcon() {
   return (
     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -325,12 +491,15 @@ export default function App(): JSX.Element {
   const [view, setView] = useState<NavKey>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [profiles, setProfiles] = useState<StoredProfile[]>([]);
+  const [subscriptions, setSubscriptions] = useState<StoredSubscription[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [editingSubscriptionId, setEditingSubscriptionId] = useState<string | null>(null);
   const [formLabel, setFormLabel] = useState("");
   const [formUri, setFormUri] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState<Record<string, boolean>>({});
   const [previewCountry, setPreviewCountry] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
@@ -374,6 +543,7 @@ export default function App(): JSX.Element {
 
   const countryCacheRef = useRef<Record<string, string>>({});
   const toastTimersRef = useRef<Map<string, number>>(new Map());
+  const profilesRef = useRef<StoredProfile[]>([]);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -463,7 +633,12 @@ export default function App(): JSX.Element {
     [profiles, selectedProfileId]
   );
 
-  const parsedPreview = useMemo(() => parseVless(formUri.trim()), [formUri]);
+  const parsedPreview = useMemo(() => {
+    if (editingSubscriptionId || isSubscriptionUri(formUri)) {
+      return null;
+    }
+    return parseVless(formUri.trim());
+  }, [editingSubscriptionId, formUri]);
 
   useEffect(() => {
     refreshPublicIp();
@@ -505,8 +680,120 @@ export default function App(): JSX.Element {
     try {
       const rawProfiles = localStorage.getItem(PROFILES_KEY);
       if (rawProfiles) {
-        const stored: StoredProfile[] = JSON.parse(rawProfiles);
-        setProfiles(stored);
+        try {
+          const parsed = JSON.parse(rawProfiles);
+          if (Array.isArray(parsed)) {
+            const sanitized: StoredProfile[] = [];
+            parsed.forEach((entry) => {
+              if (!entry || typeof entry !== "object") {
+                return;
+              }
+              const profile = entry as Partial<StoredProfile> & { info?: Partial<ProfileInfo> };
+              if (
+                typeof profile.id !== "string" ||
+                typeof profile.label !== "string" ||
+                typeof profile.uri !== "string" ||
+                !profile.info ||
+                typeof profile.info !== "object"
+              ) {
+                return;
+              }
+              const infoSource = profile.info;
+              const normalizedInfo: ProfileInfo = {
+                nodeName: typeof infoSource.nodeName === "string" ? infoSource.nodeName : "-",
+                host: typeof infoSource.host === "string" ? infoSource.host : "-",
+                port: typeof infoSource.port === "string" ? infoSource.port : "443",
+                transport: typeof infoSource.transport === "string" ? infoSource.transport : "-",
+                flow: typeof infoSource.flow === "string" ? infoSource.flow : "-",
+                security: typeof infoSource.security === "string" ? infoSource.security : "-",
+                fingerprint: typeof infoSource.fingerprint === "string" ? infoSource.fingerprint : "-",
+                sni: typeof infoSource.sni === "string" ? infoSource.sni : "-",
+                shortId: typeof infoSource.shortId === "string" ? infoSource.shortId : "-",
+                country: typeof infoSource.country === "string" ? infoSource.country : "-"
+              };
+              const originSource = (profile as any).origin;
+              let origin: ProfileOrigin | undefined;
+              if (
+                originSource &&
+                typeof originSource === "object" &&
+                originSource.type === "subscription" &&
+                typeof originSource.subscriptionId === "string"
+              ) {
+                origin = { type: "subscription", subscriptionId: originSource.subscriptionId };
+              } else if (originSource && originSource.type === "manual") {
+                origin = { type: "manual" };
+              }
+              sanitized.push({
+                id: profile.id,
+                label: profile.label,
+                uri: profile.uri,
+                info: normalizedInfo,
+                origin
+              });
+            });
+            setProfiles(sanitized);
+          }
+        } catch {
+          setProfiles([]);
+        }
+      }
+      const rawSubscriptions = localStorage.getItem(SUBSCRIPTIONS_KEY);
+      if (rawSubscriptions) {
+        try {
+          const parsed = JSON.parse(rawSubscriptions);
+          if (Array.isArray(parsed)) {
+            const sanitizedSubs: StoredSubscription[] = [];
+            parsed.forEach((entry) => {
+              if (!entry || typeof entry !== "object") {
+                return;
+              }
+              const sub = entry as Partial<StoredSubscription>;
+              if (typeof sub.id !== "string" || typeof sub.label !== "string" || typeof sub.url !== "string") {
+                return;
+              }
+              const profileIds = Array.isArray(sub.profileIds)
+                ? sub.profileIds.filter((id): id is string => typeof id === "string")
+                : [];
+              let usage: SubscriptionUsage | null = null;
+              if (sub.usage && typeof sub.usage === "object") {
+                const upload = Number((sub.usage as any).upload);
+                const download = Number((sub.usage as any).download);
+                const total = Number((sub.usage as any).total);
+                const expire = Number((sub.usage as any).expire);
+                if (
+                  Number.isFinite(upload) ||
+                  Number.isFinite(download) ||
+                  Number.isFinite(total) ||
+                  Number.isFinite(expire)
+                ) {
+                  usage = {
+                    upload: Number.isFinite(upload) ? upload : 0,
+                    download: Number.isFinite(download) ? download : 0
+                  };
+                  if (Number.isFinite(total)) {
+                    usage.total = total;
+                  }
+                  if (Number.isFinite(expire) && expire > 0) {
+                    usage.expire = expire;
+                  }
+                }
+              }
+              sanitizedSubs.push({
+                id: sub.id,
+                label: sub.label,
+                url: sub.url,
+                createdAt: typeof sub.createdAt === "number" ? sub.createdAt : Date.now(),
+                lastUpdatedAt: typeof sub.lastUpdatedAt === "number" ? sub.lastUpdatedAt : null,
+                lastError: typeof sub.lastError === "string" ? sub.lastError : null,
+                profileIds,
+                usage
+              });
+            });
+            setSubscriptions(sanitizedSubs);
+          }
+        } catch {
+          setSubscriptions([]);
+        }
       }
       const rawSelected = localStorage.getItem(SELECTED_KEY);
       if (rawSelected) {
@@ -541,6 +828,18 @@ export default function App(): JSX.Element {
       // ignore persistence errors
     }
   }, [profiles]);
+
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBSCRIPTIONS_KEY, JSON.stringify(subscriptions));
+    } catch {
+      // ignore persistence errors
+    }
+  }, [subscriptions]);
 
   useEffect(() => {
     try {
@@ -667,28 +966,84 @@ export default function App(): JSX.Element {
   };
 
   const openProfileModal = (profile?: StoredProfile | null) => {
-    if (profile) {
-      setEditingProfileId(profile.id);
-      setFormLabel(profile.label);
-      setFormUri(profile.uri);
-      setPreviewCountry(profile.info.country || null);
-    } else {
-      setEditingProfileId(null);
-      setFormLabel("");
-      setFormUri("");
-      setPreviewCountry(null);
+    if (profile && isSubscriptionProfile(profile)) {
+      const subscription = subscriptions.find(
+        (item) => item.id === profile.origin.subscriptionId
+      );
+      if (subscription) {
+        openSubscriptionEditor(subscription);
+      } else {
+        pushToast("Subscription metadata not found.", "error");
+      }
+      return;
     }
+    const target = profile ?? null;
+    setEditingProfileId(target ? target.id : null);
+    setEditingSubscriptionId(null);
+    setFormLabel(target ? target.label : "");
+    setFormUri(target ? target.uri : "");
+    setPreviewCountry(target ? target.info.country || null : null);
+    setFormError(null);
+    setShowProfileModal(true);
+  };
+
+  const openSubscriptionEditor = (subscription: StoredSubscription) => {
+    setEditingProfileId(null);
+    setEditingSubscriptionId(subscription.id);
+    setFormLabel(subscription.label);
+    setFormUri(subscription.url);
+    setPreviewCountry(null);
+    setFormError(null);
+    setShowProfileModal(true);
+  };
+
+  const openNewEntry = (initialValue = "") => {
+    const trimmed = initialValue.trim();
+    setEditingProfileId(null);
+    setEditingSubscriptionId(null);
+    setFormLabel(deriveLabelFromInput(trimmed));
+    setFormUri(trimmed);
+    setPreviewCountry(null);
     setFormError(null);
     setShowProfileModal(true);
   };
 
   const resetModal = () => {
     setEditingProfileId(null);
+    setEditingSubscriptionId(null);
     setFormLabel("");
     setFormUri("");
     setPreviewCountry(null);
     setFormError(null);
     setShowProfileModal(false);
+  };
+
+  const handleImportClipboard = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        pushToast("Clipboard access is not available.", "error");
+        return;
+      }
+      const value = (await navigator.clipboard.readText()).trim();
+      if (!value) {
+        pushToast("Clipboard is empty.", "error");
+        return;
+      }
+      if (isSubscriptionUri(value)) {
+        openNewEntry(value);
+        pushToast("Imported subscription link from clipboard.");
+        return;
+      }
+      const parsed = parseVless(value);
+      if (parsed) {
+        openNewEntry(value);
+        pushToast("Imported VLESS profile from clipboard.");
+        return;
+      }
+      pushToast("Clipboard data is not a supported profile or subscription.", "error");
+    } catch {
+      pushToast("Unable to read clipboard contents.", "error");
+    }
   };
 
   const buildSplitTunnelPayload = () => {
@@ -885,19 +1240,95 @@ export default function App(): JSX.Element {
   }, [connected]);
 
   const handleSaveProfile = async () => {
-    const parsed = parseVless(formUri.trim());
+    const trimmedUri = formUri.trim();
+    const trimmedLabel = formLabel.trim();
+    const subscriptionId = editingSubscriptionId;
+    const treatAsSubscription = subscriptionId !== null || isSubscriptionUri(trimmedUri);
+
+    if (treatAsSubscription) {
+      if (!trimmedUri) {
+        setFormError("Enter a subscription URL.");
+        return;
+      }
+      let normalized: string;
+      try {
+        normalized = new URL(trimmedUri).toString();
+      } catch {
+        setFormError("Enter a valid subscription URL.");
+        return;
+      }
+      const duplicate = subscriptions.find(
+        (sub) => sub.url === normalized && sub.id !== subscriptionId
+      );
+      if (duplicate) {
+        setFormError("This subscription is already added.");
+        return;
+      }
+      const fallbackName = subscriptionId ? "Subscription" : `Subscription ${subscriptions.length + 1}`;
+      const label =
+        trimmedLabel || deriveSubscriptionLabel(normalized) || fallbackName;
+      setFormError(null);
+      if (subscriptionId) {
+        let updated: StoredSubscription | null = null;
+        setSubscriptions((prev) =>
+          prev.map((sub) => {
+            if (sub.id === subscriptionId) {
+              const next = { ...sub, label, url: normalized };
+              updated = next;
+              return next;
+            }
+            return sub;
+          })
+        );
+        resetModal();
+        if (updated) {
+          pushToast("Subscription updated");
+          await refreshSubscription(updated, { showToast: false });
+        }
+      } else {
+        const newSubscription: StoredSubscription = {
+          id: createId(),
+          label,
+          url: normalized,
+          createdAt: Date.now(),
+          lastUpdatedAt: null,
+          lastError: null,
+          profileIds: [],
+          usage: null
+        };
+        setSubscriptions((prev) => [...prev, newSubscription]);
+        resetModal();
+        pushToast("Subscription added");
+        await refreshSubscription(newSubscription, {
+          showToast: true,
+          selectFirst: !selectedProfileId
+        });
+      }
+      return;
+    }
+
+    const parsed = parseVless(trimmedUri);
     if (!parsed) {
       setFormError("Enter a valid VLESS URI.");
       return;
     }
-    const label = formLabel.trim() || parsed.nodeName;
+    setFormError(null);
+    const label = trimmedLabel || parsed.nodeName;
     const country = await resolveCountry(parsed.host);
     const info: ProfileInfo = { ...parsed, country: country || parsed.country || "-" };
 
     if (editingProfileId) {
       setProfiles((prev) =>
         prev.map((profile) =>
-          profile.id === editingProfileId ? { ...profile, label, uri: formUri.trim(), info } : profile
+          profile.id === editingProfileId
+            ? {
+                ...profile,
+                label,
+                uri: trimmedUri,
+                info,
+                origin: profile.origin?.type === "subscription" ? profile.origin : { type: "manual" }
+              }
+            : profile
         )
       );
       setSelectedProfileId(editingProfileId);
@@ -906,8 +1337,9 @@ export default function App(): JSX.Element {
       const newProfile: StoredProfile = {
         id: createId(),
         label,
-        uri: formUri.trim(),
-        info
+        uri: trimmedUri,
+        info,
+        origin: { type: "manual" }
       };
       setProfiles((prev) => [...prev, newProfile]);
       setSelectedProfileId(newProfile.id);
@@ -929,6 +1361,10 @@ export default function App(): JSX.Element {
   const handleDeleteProfile = (id: string) => {
     const profile = profiles.find((item) => item.id === id);
     if (!profile) {
+      return;
+    }
+    if (!isManualProfile(profile)) {
+      pushToast("Remove the subscription to delete its profiles.", "error");
       return;
     }
     const confirmed = window.confirm(`Delete profile "${profile.label}"?`);
@@ -1048,6 +1484,150 @@ export default function App(): JSX.Element {
     }
   };
 
+  const refreshSubscription = useCallback(
+    async (
+      target: StoredSubscription,
+      options?: { silent?: boolean; showToast?: boolean; selectFirst?: boolean }
+    ) => {
+      setSubscriptionLoading((prev) => ({ ...prev, [target.id]: true }));
+      const requestStartedAt = Date.now();
+      try {
+        const response = await FetchSubscription(target.url);
+        const lines = decodeSubscriptionPayload(response.body);
+        const entries = lines.filter((line) => /^vless:\/\//i.test(line));
+        if (!entries.length) {
+          throw new Error("No VLESS profiles found in subscription response.");
+        }
+        const uniqueUris = Array.from(new Set(entries));
+        const newProfileIds: string[] = [];
+        const currentProfiles = profilesRef.current;
+        const existing = new Map(
+          currentProfiles
+            .filter((profile) => isSubscriptionProfile(profile) && profile.origin.subscriptionId === target.id)
+            .map((profile) => [profile.uri, profile])
+        );
+        const filtered = currentProfiles.filter(
+          (profile) => !(isSubscriptionProfile(profile) && profile.origin.subscriptionId === target.id)
+        );
+        const nextProfiles = [...filtered];
+        uniqueUris.forEach((uri, index) => {
+          const parsed = parseVless(uri);
+          if (!parsed) {
+            return;
+          }
+          const reused = existing.get(uri);
+          const id = reused?.id ?? createId();
+          const info: ProfileInfo = reused
+            ? {
+                ...parsed,
+                country: reused.info.country && reused.info.country !== "-" ? reused.info.country : parsed.country
+              }
+            : parsed;
+          const label =
+            parsed.nodeName ||
+            (target.label ? `${target.label} #${index + 1}` : `Subscription node #${index + 1}`);
+          const entry: StoredProfile = {
+            id,
+            label,
+            uri,
+            info,
+            origin: { type: "subscription", subscriptionId: target.id }
+          };
+          newProfileIds.push(id);
+          nextProfiles.push(entry);
+        });
+        if (!newProfileIds.length) {
+          throw new Error("Subscription response did not contain usable profiles.");
+        }
+        profilesRef.current = nextProfiles;
+        setProfiles(nextProfiles);
+        const usage = parseSubscriptionUserinfo(response.userInfo || null);
+        const hadSelectedBefore =
+          target.profileIds.includes(selectedProfileId ?? "") || options?.selectFirst === true;
+        if (
+          hadSelectedBefore &&
+          (!selectedProfileId || !newProfileIds.includes(selectedProfileId)) &&
+          newProfileIds.length
+        ) {
+          if (connected) {
+            void disconnectNow();
+          }
+          setSelectedProfileId(newProfileIds[0]);
+        }
+        setSubscriptions((prev) =>
+          prev.map((sub) =>
+            sub.id === target.id
+              ? {
+                  ...sub,
+                  lastUpdatedAt: requestStartedAt,
+                  lastError: null,
+                  profileIds: newProfileIds,
+                  usage
+                }
+              : sub
+          )
+        );
+        if (options?.showToast) {
+          pushToast(`Subscription "${target.label}" updated`);
+        }
+      } catch (error: any) {
+        const message = error instanceof Error ? error.message : String(error);
+        setSubscriptions((prev) =>
+          prev.map((sub) =>
+            sub.id === target.id
+              ? { ...sub, lastUpdatedAt: requestStartedAt, lastError: message }
+              : sub
+          )
+        );
+        if (!options?.silent) {
+          pushToast(`Subscription update failed: ${message}`, "error");
+        }
+      } finally {
+        setSubscriptionLoading((prev) => {
+          const next = { ...prev };
+          delete next[target.id];
+          return next;
+        });
+      }
+    },
+    [connected, disconnectNow, pushToast, selectedProfileId]
+  );
+
+  const handleDeleteSubscription = (id: string) => {
+    const subscription = subscriptions.find((sub) => sub.id === id);
+    if (!subscription) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete subscription "${subscription.label}"?`);
+    if (!confirmed) {
+      return;
+    }
+    const idsToRemove = new Set(subscription.profileIds);
+    let nextProfiles: StoredProfile[] = [];
+    setProfiles((prev) => {
+      const filtered = prev.filter((profile) => !idsToRemove.has(profile.id));
+      nextProfiles = filtered;
+      return filtered;
+    });
+    profilesRef.current = nextProfiles;
+    setSubscriptions((prev) => prev.filter((sub) => sub.id !== id));
+    setSubscriptionLoading((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    if (subscription.profileIds.includes(selectedProfileId ?? "")) {
+      if (connected) {
+        void disconnectNow();
+      }
+      setSelectedProfileId(nextProfiles.length ? nextProfiles[0].id : null);
+    }
+    if (editingSubscriptionId === id) {
+      resetModal();
+    }
+    pushToast(`Subscription "${subscription.label}" removed`);
+  };
+
   const handleSplitToggle = (enabled: boolean) => {
     if (enabled === splitEnabled) {
       return;
@@ -1092,6 +1672,48 @@ export default function App(): JSX.Element {
     () => (throughput.length ? throughput[throughput.length - 1] : undefined),
     [throughput]
   );
+
+  const manualProfiles = useMemo(
+    () => profiles.filter((profile) => isManualProfile(profile)),
+    [profiles]
+  );
+
+  const subscriptionGroups = useMemo(
+    () =>
+      subscriptions.map((subscription) => ({
+        subscription,
+        profiles: profiles.filter(
+          (profile) => isSubscriptionProfile(profile) && profile.origin.subscriptionId === subscription.id
+        )
+      })),
+    [profiles, subscriptions]
+  );
+
+  const isEditingSubscription = editingSubscriptionId !== null;
+  const isSubscriptionInputActive = isEditingSubscription || isSubscriptionUri(formUri);
+  const modalTitle = isEditingSubscription
+    ? "Edit subscription"
+    : editingProfileId
+    ? "Edit profile"
+    : isSubscriptionInputActive
+    ? "Add subscription"
+    : "Import configuration";
+  const uriFieldLabel = isSubscriptionInputActive ? "Subscription URL" : "VLESS URI";
+  const uriPlaceholder = isSubscriptionInputActive
+    ? "https://example.com/subscription"
+    : "vless://<uuid>@host:443?type=tcp&security=reality...";
+  const saveButtonLabel = isEditingSubscription
+    ? "Save changes"
+    : editingProfileId
+    ? "Save profile"
+    : isSubscriptionInputActive
+    ? "Import subscription"
+    : "Import profile";
+  const modalHint = isSubscriptionInputActive
+    ? "Paste the provider subscription URL. We will import profiles and usage automatically."
+    : "Paste a VLESS Reality config or subscription link. Subscription links are detected automatically.";
+  const showProfilePreview = Boolean(parsedPreview && !isSubscriptionInputActive);
+  const previewInfo = showProfilePreview ? parsedPreview : null;
 
   const throughputPathDown = useMemo(
     () => buildSparklinePath(throughput, (sample) => sample.down, CHART_WIDTH, CHART_HEIGHT),
@@ -1370,67 +1992,184 @@ const renderDashboard = () => {
               <span className="toggle__slider" />
               <span className="toggle__text">Split tunneling</span>
             </label>
-            <button className="ghost-button" type="button" onClick={() => openProfileModal()}>
+            <button className="ghost-button" type="button" onClick={() => openNewEntry()}>
               <PlusIcon />
-              Add profiles
+              Import config
+            </button>
+            <button className="ghost-button" type="button" onClick={() => void handleImportClipboard()}>
+              <ClipboardIcon />
+              Import from clipboard
             </button>
           </div>
         </header>
         {profiles.length === 0 ? (
           <div className="empty-state">
-            <p>You have not added any profiles yet.</p>
-            <button className="btn btn--primary" type="button" onClick={() => openProfileModal()}>
-              Add your first profile
+            <p>You have not imported any configurations yet.</p>
+            <button className="btn btn--primary" type="button" onClick={() => openNewEntry()}>
+              Import your first config
             </button>
           </div>
         ) : (
-          <div className="profile-list">
-            {profiles.map((profile) => {
-              const active = profile.id === selectedProfileId;
-              return (
-                <button
-                  key={profile.id}
-                  type="button"
-                  className={`profile-card ${active ? "profile-card--active" : ""}`}
-                  onClick={() => handleSelectProfile(profile.id)}
-                >
-                  <div className="profile-card__header">
-                    <h3>{profile.label}</h3>
-                    <span className="profile-card__tag">{profile.info.transport}</span>
-                  </div>
-                  <p className="profile-card__subtitle">
-                    {profile.info.host}:{profile.info.port}
-                  </p>
-                  <div className="profile-card__meta">
-                    <span>{profile.info.country}</span>
-                    <span>{profile.info.security}</span>
-                  </div>
-                  <div className="profile-card__actions">
-                    <button
-                      type="button"
-                      className="chip-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openProfileModal(profile);
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="chip-button chip-button--danger"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDeleteProfile(profile.id);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                  {active ? <span className="profile-card__status">Active</span> : null}
-                </button>
-              );
-            })}
+          <div className="profile-groups">
+            {manualProfiles.length ? (
+              <div className="profile-group">
+                <h3 className="profile-group__title">Manual profiles</h3>
+                <div className="profile-list">
+                  {manualProfiles.map((profile) => {
+                    const active = profile.id === selectedProfileId;
+                    return (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        className={`profile-card ${active ? "profile-card--active" : ""}`}
+                        onClick={() => handleSelectProfile(profile.id)}
+                      >
+                        <div className="profile-card__header">
+                          <h3>{profile.label}</h3>
+                          <span className="profile-card__tag">{profile.info.transport}</span>
+                        </div>
+                        <p className="profile-card__subtitle">
+                          {profile.info.host}:{profile.info.port}
+                        </p>
+                        <div className="profile-card__meta">
+                          <span>{profile.info.country}</span>
+                          <span>{profile.info.security}</span>
+                        </div>
+                        <div className="profile-card__actions">
+                          <button
+                            type="button"
+                            className="chip-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openProfileModal(profile);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="chip-button chip-button--danger"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteProfile(profile.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        {active ? <span className="profile-card__status">Active</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {subscriptionGroups.length ? (
+              <div className="profile-group">
+                <h3 className="profile-group__title">Subscriptions</h3>
+                <div className="subscription-list">
+                  {subscriptionGroups.map(({ subscription, profiles: subscriptionProfiles }) => {
+                    const usage = subscription.usage;
+                    const usedBytes = (usage?.download ?? 0) + (usage?.upload ?? 0);
+                    const totalBytes = usage?.total ?? null;
+                    const remainingBytes =
+                      totalBytes != null ? Math.max(totalBytes - usedBytes, 0) : null;
+                    const isUpdating = Boolean(subscriptionLoading[subscription.id]);
+                    return (
+                      <div key={subscription.id} className="subscription-card">
+                        <div className="subscription-card__header">
+                          <div>
+                            <h4>{subscription.label}</h4>
+                            <div className="subscription-card__meta">
+                              <span>Last update: {formatTimestamp(subscription.lastUpdatedAt)}</span>
+                              <span>Profiles: {subscriptionProfiles.length}</span>
+                              <span>Expires: {formatTimestamp(usage?.expire)}</span>
+                            </div>
+                            {subscription.lastError ? (
+                              <p className="subscription-card__error">{subscription.lastError}</p>
+                            ) : null}
+                          </div>
+                          <div className="subscription-card__actions">
+                            <button
+                              type="button"
+                              className="chip-button"
+                              disabled={isUpdating}
+                              onClick={() => void refreshSubscription(subscription, { showToast: true })}
+                            >
+                              {isUpdating ? "Updating..." : "Refresh"}
+                            </button>
+                            <button
+                              type="button"
+                              className="chip-button"
+                              onClick={() => openSubscriptionEditor(subscription)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="chip-button chip-button--danger"
+                              onClick={() => handleDeleteSubscription(subscription.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <div className="subscription-card__usage">
+                          <div>
+                            <span className="subscription-card__usage-label">Used</span>
+                            <span className="subscription-card__usage-value">{formatBytes(usedBytes)}</span>
+                          </div>
+                          <div>
+                            <span className="subscription-card__usage-label">Remaining</span>
+                            <span className="subscription-card__usage-value">
+                              {remainingBytes != null ? formatBytes(remainingBytes) : "-"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="subscription-card__usage-label">Total</span>
+                            <span className="subscription-card__usage-value">
+                              {totalBytes != null ? formatBytes(totalBytes) : "Unlimited"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="subscription-card__profiles">
+                          {subscriptionProfiles.length ? (
+                            subscriptionProfiles.map((profile) => {
+                              const active = profile.id === selectedProfileId;
+                              return (
+                                <button
+                                  key={profile.id}
+                                  type="button"
+                                  className={`profile-card profile-card--compact ${
+                                    active ? "profile-card--active" : ""
+                                  }`}
+                                  onClick={() => handleSelectProfile(profile.id)}
+                                >
+                                  <div className="profile-card__header">
+                                    <h3>{profile.label}</h3>
+                                    <span className="profile-card__tag">{profile.info.transport}</span>
+                                  </div>
+                                  <p className="profile-card__subtitle">
+                                    {profile.info.host}:{profile.info.port}
+                                  </p>
+                                  <div className="profile-card__meta">
+                                    <span>{profile.info.country}</span>
+                                    <span>{profile.info.security}</span>
+                                  </div>
+                                  {active ? <span className="profile-card__status">Active</span> : null}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="subscription-card__empty">No profiles fetched yet.</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </section>
@@ -1853,7 +2592,7 @@ const renderLogs = () => (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal">
             <header className="modal__header">
-              <h2>{editingProfileId ? "Edit profile" : "Add profile"}</h2>
+              <h2>{modalTitle}</h2>
             </header>
             <div className="modal__body">
               <label className="field">
@@ -1862,52 +2601,60 @@ const renderLogs = () => (
                   className="field__input"
                   value={formLabel}
                   onChange={(event) => setFormLabel(event.target.value)}
-                  placeholder="My Reality Node"
+                  placeholder={isSubscriptionInputActive ? "My provider" : "My Reality Node"}
                 />
               </label>
               <label className="field">
-                <span className="field__label">VLESS URI</span>
+                <span className="field__label">{uriFieldLabel}</span>
                 <textarea
                   className="field__input field__input--textarea"
                   rows={3}
                   value={formUri}
                   onChange={(event) => {
-                    setFormUri(event.target.value);
+                    const nextValue = event.target.value;
+                    setFormUri(nextValue);
                     setFormError(null);
+                    if (!editingProfileId && !editingSubscriptionId && !formLabel.trim()) {
+                      const auto = deriveLabelFromInput(nextValue);
+                      if (auto) {
+                        setFormLabel(auto);
+                      }
+                    }
                   }}
-                  placeholder="vless://<uuid>@host:443?type=tcp&security=reality..."
+                  placeholder={uriPlaceholder}
                 />
               </label>
+              <p className="modal__hint">{modalHint}</p>
               {formError ? <p className="field__error">{formError}</p> : null}
-              {parsedPreview ? (
+              {previewInfo ? (
                 <div className="preview">
                   <h3>Preview</h3>
                   <div className="preview__grid">
                     <div>
                       <span className="preview__label">Node</span>
-                      <span className="preview__value">{parsedPreview.nodeName}</span>
+                      <span className="preview__value">{previewInfo.nodeName}</span>
                     </div>
                     <div>
                       <span className="preview__label">Host</span>
                       <span className="preview__value">
-                        {parsedPreview.host}:{parsedPreview.port}
+                        {previewInfo.host}:{previewInfo.port}
                       </span>
                     </div>
                     <div>
                       <span className="preview__label">Transport</span>
-                      <span className="preview__value">{parsedPreview.transport}</span>
+                      <span className="preview__value">{previewInfo.transport}</span>
                     </div>
                     <div>
                       <span className="preview__label">Flow</span>
-                      <span className="preview__value">{parsedPreview.flow || "-"}</span>
+                      <span className="preview__value">{previewInfo.flow || "-"}</span>
                     </div>
                     <div>
                       <span className="preview__label">Country</span>
-                      <span className="preview__value">{previewCountry ?? parsedPreview.country}</span>
+                      <span className="preview__value">{previewCountry ?? previewInfo.country}</span>
                     </div>
                     <div>
                       <span className="preview__label">SNI</span>
-                      <span className="preview__value">{parsedPreview.sni}</span>
+                      <span className="preview__value">{previewInfo.sni}</span>
                     </div>
                   </div>
                 </div>
@@ -1918,7 +2665,7 @@ const renderLogs = () => (
                 Cancel
               </button>
               <button className="btn btn--primary" type="button" onClick={() => void handleSaveProfile()}>
-                {editingProfileId ? "Save changes" : "Save profile"}
+                {saveButtonLabel}
               </button>
             </footer>
           </div>
@@ -1927,6 +2674,7 @@ const renderLogs = () => (
     </div>
   );
 }
+
 
 
 
