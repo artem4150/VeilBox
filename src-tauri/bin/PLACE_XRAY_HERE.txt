@@ -1,0 +1,5 @@
+Place the Windows `xray.exe` binary in this folder before running `npm run tauri dev`
+or building a release bundle.
+
+Expected path:
+`src-tauri/bin/xray.exe`

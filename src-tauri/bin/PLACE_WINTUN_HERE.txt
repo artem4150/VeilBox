@@ -1,0 +1,5 @@
+Place `wintun.dll` here if you want to use TUN mode.
+
+The file must be located next to `xray.exe`:
+
+src-tauri/bin/wintun.dll

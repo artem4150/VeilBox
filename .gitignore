@@ -1,0 +1,48 @@
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Tauri / Rust
+src-tauri/target/
+target/
+Cargo.lock
+
+# Generated app data / logs / temp files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.pid
+
+# Environment / local config
+.env
+.env.*
+!.env.example
+
+# IDE / editors
+.idea/
+.vscode/
+*.suo
+*.user
+*.userossc
+*.sln.docstates
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Keep placeholders, ignore bundled runtime binaries by default
+src-tauri/bin/*.exe
+src-tauri/bin/*.dll
+!src-tauri/bin/PLACE_XRAY_HERE.txt
+!src-tauri/bin/PLACE_WINTUN_HERE.txt
+
+# Optional local screenshots / exports
+screenshots/
+artifacts/
