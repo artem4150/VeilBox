@@ -75,6 +75,7 @@ const defaultSettings: Settings = {
   debugLogging: false,
   connectionMode: 'systemProxy',
   tunInterfaceName: 'xray0',
+  tunDisableIpv6: true,
   tunOutboundInterface: null,
   splitTunnelMode: 'disabled',
   splitTunnelDomains: [],

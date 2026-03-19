@@ -108,7 +108,14 @@ impl RuntimeStateStore {
         self.inner.read().await.clone()
     }
 
-    pub async fn mark_connected(&self, profile_id: String, http_port: u16, socks_port: u16, proxy_string: Option<String>) -> AppResult<()> {
+    pub async fn mark_connected(
+        &self,
+        profile_id: String,
+        http_port: u16,
+        socks_port: u16,
+        proxy_string: Option<String>,
+        winhttp_dump: Option<String>,
+    ) -> AppResult<()> {
         {
             let mut state = self.inner.write().await;
             state.was_connected = true;
@@ -116,6 +123,7 @@ impl RuntimeStateStore {
             state.last_http_proxy_port = Some(http_port);
             state.last_socks_proxy_port = Some(socks_port);
             state.last_proxy_string = proxy_string;
+            state.last_winhttp_dump = winhttp_dump;
         }
         self.persist().await
     }

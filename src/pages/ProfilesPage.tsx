@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { Panel } from '../components/Panel';
@@ -6,7 +6,7 @@ import { ImportProfileDialog } from '../features/profiles/ImportProfileDialog';
 import { ProfileForm } from '../features/profiles/ProfileForm';
 import { ProfileListItem } from '../features/profiles/ProfileListItem';
 import { useAppStore } from '../store/useAppStore';
-import { useEffect } from 'react';
+
 import { useLocation, useNavigate } from 'react-router-dom';
 
 export function ProfilesPage() {
@@ -34,6 +34,14 @@ export function ProfilesPage() {
     [editorProfileId, profiles],
   );
 
+  const sortedProfiles = useMemo(() => {
+    return [...profiles].sort((a, b) => {
+      if (a.id === selectedProfileId) return -1;
+      if (b.id === selectedProfileId) return 1;
+      return 0;
+    });
+  }, [profiles, selectedProfileId]);
+
   return (
     <div className="page">
       <div className="page-header">
@@ -46,21 +54,21 @@ export function ProfilesPage() {
 
       <div className="profiles-layout">
         <Panel title="Stored profiles" description="Select an active route or manage existing ones">
-          {profiles.length ? (
+          {sortedProfiles.length ? (
             <div className="profile-list">
-              {profiles.map((profile) => (
-                <ProfileListItem
-                  key={profile.id}
-                  profile={profile}
-                  selected={editorProfileId === profile.id}
-                  active={selectedProfileId === profile.id}
-                  latency={latencies[profile.id]}
-                  onSelect={() => setEditorProfileId(profile.id)}
-                  onActivate={() => void selectProfile(profile.id)}
-                  onDuplicate={() => void duplicateProfile(profile.id)}
-                  onDelete={() => void deleteProfile(profile.id)}
-                />
-              ))}
+                {sortedProfiles.map((profile) => (
+                  <ProfileListItem
+                    key={profile.id}
+                    profile={profile}
+                    selected={editorProfileId === profile.id}
+                    active={selectedProfileId === profile.id}
+                    latency={latencies[profile.id]}
+                    onSelect={() => setEditorProfileId(profile.id)}
+                    onActivate={() => void selectProfile(profile.id)}
+                    onDuplicate={() => void duplicateProfile(profile.id)}
+                    onDelete={() => void deleteProfile(profile.id)}
+                  />
+                ))}
             </div>
           ) : (
             <EmptyState

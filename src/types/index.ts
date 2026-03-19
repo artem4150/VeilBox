@@ -56,6 +56,7 @@ export interface Settings {
   debugLogging: boolean;
   connectionMode: ConnectionMode;
   tunInterfaceName: string;
+  tunDisableIpv6: boolean;
   tunOutboundInterface: string | null;
   splitTunnelMode: SplitTunnelMode;
   splitTunnelDomains: string[];

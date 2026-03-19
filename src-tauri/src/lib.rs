@@ -163,7 +163,12 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 let state = app.state::<AppState>();
+                let runtime_snapshot =
+                    tauri::async_runtime::block_on(async { state.runtime_state.snapshot().await });
                 let _ = proxy_manager_windows::clear_proxy();
+                let _ = proxy_manager_windows::restore_winhttp_proxy(
+                    runtime_snapshot.last_winhttp_dump.as_deref(),
+                );
                 let session = tauri::async_runtime::block_on(async {
                     state.connection.session.lock().await.take()
                 });

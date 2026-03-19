@@ -9,16 +9,15 @@ use crate::{
 const TUN_MTU: u16 = 1500;
 const TUN_IPV4_ADDRESS: &str = "172.19.0.1/30";
 const TUN_IPV6_ADDRESS: &str = "fdfe:dcba:9876::1/126";
-const LOCAL_BYPASS_IPS: &[&str] = &[
+const LOCAL_BYPASS_IPV4_IPS: &[&str] = &[
     "127.0.0.0/8",
     "10.0.0.0/8",
     "172.16.0.0/12",
     "192.168.0.0/16",
     "169.254.0.0/16",
-    "::1/128",
-    "fc00::/7",
-    "fe80::/10",
 ];
+const LOCAL_BYPASS_IPV6_IPS: &[&str] = &["::1/128", "fc00::/7", "fe80::/10"];
+const DEFAULT_DNS_SERVERS: &[&str] = &["1.1.1.1", "8.8.8.8"];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +84,8 @@ struct Inbound {
 struct Sniffing {
     enabled: bool,
     dest_override: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route_only: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +158,8 @@ struct TlsSettings {
     allow_insecure: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     alpn: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fingerprint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,6 +247,7 @@ pub fn build_xray_config(
     ];
 
     if tun_mode {
+        let tun_addresses = tun_addresses(settings);
         inbounds.push(Inbound {
             tag: "tun-in".to_string(),
             listen: None,
@@ -251,7 +255,7 @@ pub fn build_xray_config(
             protocol: "tun".to_string(),
             settings: serde_json::json!({
               "name": settings.tun_interface_name,
-              "address": [TUN_IPV4_ADDRESS, TUN_IPV6_ADDRESS],
+              "address": tun_addresses,
               "mtu": TUN_MTU,
               "stack": "system",
               "autoRoute": true,
@@ -280,7 +284,7 @@ pub fn build_xray_config(
         stream_settings: Some(build_stream_settings(profile, outbound_sockopt.clone())?),
     };
 
-    let mut outbounds = vec![
+    let outbounds = vec![
         proxy_outbound,
         Outbound {
             tag: "direct".to_string(),
@@ -299,17 +303,14 @@ pub fn build_xray_config(
                 kcp_settings: None,
             }),
         },
-    ];
-
-    let dns = if tun_mode {
-        outbounds.push(Outbound {
+        Outbound {
             tag: "dns-out".to_string(),
             protocol: "dns".to_string(),
             settings: serde_json::json!({}),
             stream_settings: Some(StreamSettings {
                 network: None,
                 security: None,
-                sockopt: outbound_sockopt,
+                sockopt: outbound_sockopt.clone(),
                 tls_settings: None,
                 reality_settings: None,
                 ws_settings: None,
@@ -318,20 +319,18 @@ pub fn build_xray_config(
                 httpupgrade_settings: None,
                 kcp_settings: None,
             }),
-        });
+        },
+    ];
 
-        Some(DnsSection {
-            servers: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
-        })
-    } else {
-        None
-    };
+    let dns = Some(DnsSection {
+        servers: DEFAULT_DNS_SERVERS.iter().map(|value| value.to_string()).collect(),
+    });
 
-    let routing = if tun_mode {
-        Some(build_tun_routing(profile, settings))
+    let routing = Some(if tun_mode {
+        build_tun_routing(profile, settings)
     } else {
-        None
-    };
+        build_system_proxy_routing()
+    });
 
     let config = XrayConfig {
         log: LogSection { loglevel: "warning" },
@@ -374,7 +373,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
     rules.push(RoutingRule {
         kind: "field",
         inbound_tag: Some(vec!["tun-in".to_string()]),
-        ip: Some(LOCAL_BYPASS_IPS.iter().map(|value| value.to_string()).collect()),
+        ip: Some(local_bypass_ips(settings)),
         domain: None,
         port: None,
         outbound_tag: "direct".to_string(),
@@ -449,6 +448,48 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
     }
 }
 
+fn build_system_proxy_routing() -> RoutingSection {
+    RoutingSection {
+        domain_strategy: "IPIfNonMatch",
+        rules: vec![
+            RoutingRule {
+                kind: "field",
+                inbound_tag: Some(vec!["http-in".to_string(), "socks-in".to_string()]),
+                ip: None,
+                domain: None,
+                port: Some("53".to_string()),
+                outbound_tag: "dns-out".to_string(),
+            },
+            rule_for_inbounds(vec!["http-in", "socks-in"], "proxy"),
+        ],
+    }
+}
+
+fn tun_addresses(settings: &Settings) -> Vec<&'static str> {
+    let mut addresses = vec![TUN_IPV4_ADDRESS];
+    if !settings.tun_disable_ipv6 {
+        addresses.push(TUN_IPV6_ADDRESS);
+    }
+    addresses
+}
+
+fn local_bypass_ips(settings: &Settings) -> Vec<String> {
+    let mut items = LOCAL_BYPASS_IPV4_IPS
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+
+    if !settings.tun_disable_ipv6 {
+        items.extend(
+            LOCAL_BYPASS_IPV6_IPS
+                .iter()
+                .map(|value| value.to_string()),
+        );
+    }
+
+    items
+}
+
 fn rule_for_inbounds(inbounds: Vec<&str>, outbound_tag: &str) -> RoutingRule {
     RoutingRule {
         kind: "field",
@@ -495,6 +536,7 @@ fn default_sniffing(include_quic: bool) -> Sniffing {
     Sniffing {
         enabled: true,
         dest_override,
+        route_only: Some(true),
     }
 }
 
@@ -639,6 +681,7 @@ fn tls_settings_for(profile: &Profile, security: &SecurityType) -> Option<TlsSet
             server_name: profile.sni.clone(),
             allow_insecure: profile.allow_insecure,
             alpn: profile.alpn.clone(),
+            fingerprint: profile.fingerprint.clone().or_else(|| Some("chrome".to_string())),
         }),
         _ => None,
     }

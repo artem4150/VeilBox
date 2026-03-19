@@ -79,7 +79,10 @@ pub async fn test_profile_connection(
 pub async fn cleanup_on_launch(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();
     let runtime_snapshot = state.runtime_state.snapshot().await;
-    let cleaned = proxy_manager_windows::best_effort_cleanup(runtime_snapshot.last_proxy_string.clone())?;
+    let cleaned = proxy_manager_windows::best_effort_cleanup(
+        runtime_snapshot.last_proxy_string.clone(),
+        runtime_snapshot.last_winhttp_dump.clone(),
+    )?;
     if cleaned {
         let _ = state
             .log_if_enabled(
@@ -276,12 +279,27 @@ async fn run_xray(
         terminate_child(&child).await;
         return Err(error);
     }
+    let previous_winhttp_dump = if tun_mode {
+        None
+    } else {
+        proxy_manager_windows::capture_winhttp_dump().ok()
+    };
+
     if tun_mode {
         let _ = proxy_manager_windows::clear_proxy();
     } else {
         if let Err(error) = proxy_manager_windows::set_proxy(http_port, &settings) {
             terminate_child(&child).await;
             return Err(error);
+        }
+        if let Err(error) = proxy_manager_windows::apply_winhttp_proxy(http_port, &settings) {
+            let _ = state
+                .log_if_enabled(
+                    LogSource::Connection,
+                    LogLevel::Warn,
+                    format!("Unable to apply WinHTTP proxy compatibility layer: {}", error.message),
+                )
+                .await;
         }
         if !proxy_manager_windows::verify_proxy(http_port)? {
             terminate_child(&child).await;
@@ -312,11 +330,17 @@ async fn run_xray(
     let proxy_string = if tun_mode {
         None
     } else {
-        Some(format!("http=127.0.0.1:{};https=127.0.0.1:{}", http_port, http_port))
+        Some(format!("127.0.0.1:{}", http_port))
     };
     state
         .runtime_state
-        .mark_connected(profile.id.clone(), http_port, socks_port, proxy_string)
+        .mark_connected(
+            profile.id.clone(),
+            http_port,
+            socks_port,
+            proxy_string,
+            previous_winhttp_dump,
+        )
         .await?;
 
     let connected_status = ConnectionStatusPayload {
@@ -369,8 +393,21 @@ async fn disconnect_locked(app: &AppHandle, state: &AppState) -> AppResult<Conne
     };
 
     let mut proxy_error = None;
+    let runtime_snapshot = state.runtime_state.snapshot().await;
+
     if let Err(error) = proxy_manager_windows::clear_proxy() {
         proxy_error = Some(error);
+    }
+    if let Err(error) =
+        proxy_manager_windows::restore_winhttp_proxy(runtime_snapshot.last_winhttp_dump.as_deref())
+    {
+        let _ = state
+            .log_if_enabled(
+                LogSource::Connection,
+                LogLevel::Warn,
+                format!("Unable to restore previous WinHTTP proxy state: {}", error.message),
+            )
+            .await;
     }
 
     if let Some(session) = session {
@@ -463,6 +500,10 @@ fn spawn_session_monitor(
                         )
                         .await;
                     let _ = proxy_manager_windows::clear_proxy();
+                    let runtime_snapshot = state.runtime_state.snapshot().await;
+                    let _ = proxy_manager_windows::restore_winhttp_proxy(
+                        runtime_snapshot.last_winhttp_dump.as_deref(),
+                    );
                     let _ = handle_unexpected_exit(&app, state.inner(), session_id, profile_id.clone()).await;
                     break;
                 }

@@ -1,9 +1,17 @@
-use std::{net::Ipv4Addr, ptr::null_mut};
+use std::{
+    fs,
+    net::Ipv4Addr,
+    os::windows::process::CommandExt,
+    path::PathBuf,
+    process::Command,
+    ptr::null_mut,
+};
 
 use winapi::um::wininet::{
     InternetSetOptionW, INTERNET_OPTION_REFRESH, INTERNET_OPTION_SETTINGS_CHANGED,
 };
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
@@ -12,6 +20,7 @@ use crate::{
 
 const INTERNET_SETTINGS: &str =
     "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone)]
 pub struct ProxyState {
@@ -39,7 +48,7 @@ pub fn set_proxy(port: u16, settings_snapshot: &Settings) -> AppResult<()> {
     settings
         .set_value(
             "ProxyServer",
-            &format!("http=127.0.0.1:{port};https=127.0.0.1:{port}"),
+            &format!("127.0.0.1:{port}"),
         )
         .map_err(|error| AppError::proxy("Не удалось записать адрес proxy", Some(error.to_string())))?;
     settings
@@ -72,6 +81,29 @@ pub fn clear_proxy() -> AppResult<()> {
     refresh_internet_settings()
 }
 
+pub fn capture_winhttp_dump() -> AppResult<String> {
+    run_netsh(["winhttp", "dump"])
+}
+
+pub fn apply_winhttp_proxy(port: u16, settings_snapshot: &Settings) -> AppResult<()> {
+    if !matches!(settings_snapshot.connection_mode, ConnectionMode::SystemProxy) {
+        return Ok(());
+    }
+
+    let proxy_server = format!("127.0.0.1:{port}");
+    let bypass_list = format!("bypass-list={}", build_proxy_override(settings_snapshot)?);
+
+    let _ = run_netsh(["winhttp", "set", "proxy", &proxy_server, &bypass_list])?;
+    Ok(())
+}
+
+pub fn restore_winhttp_proxy(previous_dump: Option<&str>) -> AppResult<()> {
+    match previous_dump {
+        Some(dump) if !dump.trim().is_empty() => apply_winhttp_dump(dump),
+        _ => reset_winhttp_proxy(),
+    }
+}
+
 pub fn verify_proxy(port: u16) -> AppResult<bool> {
     let state = get_proxy_state()?;
     Ok(state.enabled
@@ -81,23 +113,34 @@ pub fn verify_proxy(port: u16) -> AppResult<bool> {
             .contains(&format!("127.0.0.1:{port}")))
 }
 
-pub fn best_effort_cleanup(known_proxy_string: Option<String>) -> AppResult<bool> {
+pub fn best_effort_cleanup(
+    known_proxy_string: Option<String>,
+    previous_winhttp_dump: Option<String>,
+) -> AppResult<bool> {
+    let mut cleaned = false;
     let state = get_proxy_state()?;
     if !state.enabled {
-        return Ok(false);
+        // continue to WinHTTP cleanup
+    } else {
+        let server = state.server.unwrap_or_default();
+        let looks_like_ours = known_proxy_string
+            .map(|known| server == known)
+            .unwrap_or_else(|| server.contains("127.0.0.1:"));
+
+        if looks_like_ours {
+            clear_proxy()?;
+            cleaned = true;
+        }
     }
 
-    let server = state.server.unwrap_or_default();
-    let looks_like_ours = known_proxy_string
-        .map(|known| server == known)
-        .unwrap_or_else(|| server.contains("127.0.0.1:"));
-
-    if looks_like_ours {
-        clear_proxy()?;
-        return Ok(true);
+    if let Ok(dump) = capture_winhttp_dump() {
+        if dump.contains("127.0.0.1:") {
+            restore_winhttp_proxy(previous_winhttp_dump.as_deref())?;
+            cleaned = true;
+        }
     }
 
-    Ok(false)
+    Ok(cleaned)
 }
 
 pub fn get_proxy_state() -> AppResult<ProxyState> {
@@ -260,4 +303,51 @@ fn refresh_internet_settings() -> AppResult<()> {
         }
     }
     Ok(())
+}
+
+fn reset_winhttp_proxy() -> AppResult<()> {
+    let _ = run_netsh(["winhttp", "reset", "proxy"])?;
+    Ok(())
+}
+
+fn apply_winhttp_dump(dump: &str) -> AppResult<()> {
+    let script_path = write_netsh_script(dump)?;
+    let script_path_string = script_path.to_string_lossy().to_string();
+    let result = run_netsh(["-f", &script_path_string]);
+    let _ = fs::remove_file(script_path);
+    result.map(|_| ())
+}
+
+fn write_netsh_script(contents: &str) -> AppResult<PathBuf> {
+    let path = std::env::temp_dir().join(format!("vailbox-winhttp-{}.txt", Uuid::new_v4()));
+    fs::write(&path, contents)
+        .map_err(|error| AppError::proxy("Failed to write temporary WinHTTP restore script", Some(error.to_string())))?;
+    Ok(path)
+}
+
+fn run_netsh<'a>(args: impl IntoIterator<Item = &'a str>) -> AppResult<String> {
+    let output = Command::new("netsh")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| AppError::proxy("Failed to launch netsh for Windows proxy configuration", Some(error.to_string())))?;
+
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("exit status: {}", output.status)
+    };
+
+    Err(AppError::proxy(
+        "Windows WinHTTP proxy command failed",
+        Some(details),
+    ))
 }

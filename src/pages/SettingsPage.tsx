@@ -273,6 +273,13 @@ export function SettingsPage() {
                   />
                 </Field>
 
+                <Toggle
+                  checked={settings.tunDisableIpv6}
+                  onChange={(tunDisableIpv6) => void saveSettings({ tunDisableIpv6 })}
+                  label="Отключить IPv6 в TUN"
+                  description="Рекомендуется для клиентов, которые могут обходить system proxy или утекают по IPv6. Для более жесткой маршрутизации оставь включенным."
+                />
+
                 <Field
                   label="Исходящий интерфейс"
                   hint={

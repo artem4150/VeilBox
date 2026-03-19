@@ -120,6 +120,8 @@ pub struct Settings {
     pub debug_logging: bool,
     pub connection_mode: ConnectionMode,
     pub tun_interface_name: String,
+    #[serde(default = "default_true")]
+    pub tun_disable_ipv6: bool,
     pub tun_outbound_interface: Option<String>,
     pub split_tunnel_mode: SplitTunnelMode,
     pub split_tunnel_domains: Vec<String>,
@@ -138,6 +140,7 @@ impl Default for Settings {
             debug_logging: false,
             connection_mode: ConnectionMode::SystemProxy,
             tun_interface_name: "xray0".to_string(),
+            tun_disable_ipv6: true,
             tun_outbound_interface: None,
             split_tunnel_mode: SplitTunnelMode::Disabled,
             split_tunnel_domains: Vec::new(),
@@ -158,6 +161,7 @@ pub struct SettingsPatch {
     pub debug_logging: Option<bool>,
     pub connection_mode: Option<ConnectionMode>,
     pub tun_interface_name: Option<String>,
+    pub tun_disable_ipv6: Option<bool>,
     pub tun_outbound_interface: Option<Option<String>>,
     pub split_tunnel_mode: Option<SplitTunnelMode>,
     pub split_tunnel_domains: Option<Vec<String>>,
@@ -194,6 +198,10 @@ pub enum ThemeMode {
     Dark,
     Light,
     System,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,6 +352,7 @@ pub struct RuntimeSessionState {
     pub last_http_proxy_port: Option<u16>,
     pub last_socks_proxy_port: Option<u16>,
     pub last_proxy_string: Option<String>,
+    pub last_winhttp_dump: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

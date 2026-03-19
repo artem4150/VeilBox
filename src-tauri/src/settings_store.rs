@@ -69,6 +69,9 @@ impl SettingsStore {
                 trimmed.to_string()
             };
         }
+        if let Some(value) = patch.tun_disable_ipv6 {
+            settings.tun_disable_ipv6 = value;
+        }
         if let Some(value) = patch.tun_outbound_interface {
             settings.tun_outbound_interface = value.and_then(|item| {
                 let trimmed = item.trim().to_string();
