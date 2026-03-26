@@ -1,5 +1,4 @@
-import { Check, Copy, Trash2 } from 'lucide-react';
-import { Button } from '../../components/Button';
+import { Trash2 } from 'lucide-react';
 import { CountryFlag } from '../../components/CountryFlag';
 import { formatLatency } from '../../lib/format';
 import { t } from '../../lib/i18n';
@@ -25,8 +24,6 @@ export function ProfileListItem({
   latency,
   country,
   onSelect,
-  onActivate,
-  onDuplicate,
   onDelete,
 }: ProfileListItemProps) {
   const language = useAppStore((state) => state.settings.language);
@@ -36,7 +33,7 @@ export function ProfileListItem({
     <div
       role="button"
       tabIndex={0}
-      className={`profile-list-item${selected ? ' profile-list-item-selected' : ''}`}
+      className={`profile-list-item dashboard-profile-row${selected ? ' profile-list-item-selected' : ''}`}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -45,52 +42,36 @@ export function ProfileListItem({
         }
       }}
     >
-      <div className="profile-item-main">
-        <div className="profile-item-header profile-item-header-inline">
-          <CountryFlag
-            code={country?.countryCode}
-            className="profile-flag"
-            title={country?.countryName ?? t(language, 'locationUnknown')}
-          />
-          <strong>{profile.name}</strong>
-          {active ? <span className="mini-chip">{t(language, 'profileActive')}</span> : null}
-          <span className="profile-inline-meta" title={`${profile.networkType.toUpperCase()} / ${profile.securityType.toUpperCase()}`}>
-            {profile.networkType.toUpperCase()} / {profile.securityType.toUpperCase()}
-          </span>
-          <span className={`latency-chip latency-${latencyTone}`}>{formatLatency(latency, language)}</span>
-        </div>
+      <div className="dashboard-profile-main">
+        <CountryFlag
+          code={country?.countryCode}
+          className="profile-flag"
+          title={country?.countryName ?? t(language, 'locationUnknown')}
+        />
+        <strong className="dashboard-profile-name">{profile.name}</strong>
+        {active ? <span className="dashboard-active-chip">{t(language, 'profileActive')}</span> : null}
+        <span
+          className="dashboard-profile-meta"
+          title={`${profile.networkType.toUpperCase()} / ${profile.securityType.toUpperCase()}`}
+        >
+          {profile.networkType.toUpperCase()}/{profile.securityType.toUpperCase()}
+        </span>
       </div>
-      <div className="profile-item-actions">
-        <Button
-          variant="ghost"
-          aria-label={t(language, 'profileUse')}
-          title={t(language, 'profileUse')}
-          onClick={(event) => {
-            event.stopPropagation();
-            onActivate();
-          }}
-        >
-          <Check size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDuplicate();
-          }}
-        >
-          <Copy size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          className="danger-ghost"
+
+      <div className="dashboard-profile-actions">
+        <span className={`latency-chip latency-${latencyTone}`}>{formatLatency(latency, language)}</span>
+        <button
+          type="button"
+          className="dashboard-delete-icon"
           onClick={(event) => {
             event.stopPropagation();
             onDelete();
           }}
+          aria-label={t(language, 'subscriptionDelete')}
+          title={t(language, 'subscriptionDelete')}
         >
-          <Trash2 size={14} />
-        </Button>
+          <Trash2 size={16} />
+        </button>
       </div>
     </div>
   );

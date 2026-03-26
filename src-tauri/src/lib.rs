@@ -1,5 +1,6 @@
 mod commands;
 mod config_builder;
+mod elevation_manager;
 mod error;
 mod log_manager;
 mod latency_manager;
@@ -12,6 +13,7 @@ mod settings_store;
 mod state;
 mod subscription_store;
 mod subscription_import;
+mod tun_route_manager;
 mod tray_manager;
 mod vless_parser;
 mod xray_manager;
@@ -72,16 +74,11 @@ fn apply_adaptive_main_window_size(app: &AppHandle) {
     let max_fit_width = (logical_width - 24.0).max(520.0);
     let max_fit_height = (logical_height - 48.0).max(480.0);
 
-    let min_width = 760.0_f64.min(max_fit_width);
-    let min_height = 620.0_f64.min(max_fit_height);
+    let min_width = 775.0_f64.min(max_fit_width);
+    let min_height = 600.0_f64.min(max_fit_height);
 
-    let max_start_width = 960.0_f64.min(max_fit_width);
-    let max_start_height = 760.0_f64.min(max_fit_height);
-
-    let start_width = (logical_width * 0.45).round().clamp(min_width, max_start_width);
-    let start_height = (logical_height * 0.78)
-        .round()
-        .clamp(min_height, max_start_height);
+    let start_width = min_width;
+    let start_height = min_height;
 
     let _ = window.set_min_size(Some(Size::Logical(LogicalSize::new(min_width, min_height))));
     let _ = window.set_size(Size::Logical(LogicalSize::new(start_width, start_height)));
@@ -119,6 +116,14 @@ pub fn run() {
             tauri::async_runtime::block_on(async {
                 xray_manager::cleanup_on_launch(app.handle()).await
             })?;
+            if let Some(profile_id) = elevation_manager::pending_elevated_connect_profile() {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let app_state = app_handle.state::<AppState>();
+                    let _ = xray_manager::connect_profile(&app_handle, app_state.inner(), profile_id).await;
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -165,10 +170,17 @@ pub fn run() {
                 let state = app.state::<AppState>();
                 let runtime_snapshot =
                     tauri::async_runtime::block_on(async { state.runtime_state.snapshot().await });
-                let _ = proxy_manager_windows::clear_proxy();
+                let settings_snapshot =
+                    tauri::async_runtime::block_on(async { state.settings_store.get().await });
+                let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
                 let _ = proxy_manager_windows::restore_winhttp_proxy(
                     runtime_snapshot.last_winhttp_dump.as_deref(),
                 );
+                if matches!(settings_snapshot.connection_mode, crate::models::ConnectionMode::Tun) {
+                    let _ = crate::tun_route_manager::disable_full_tunnel(
+                        &settings_snapshot.tun_interface_name,
+                    );
+                }
                 let session = tauri::async_runtime::block_on(async {
                     state.connection.session.lock().await.take()
                 });

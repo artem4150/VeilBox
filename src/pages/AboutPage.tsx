@@ -1,50 +1,70 @@
-import { Panel } from '../components/Panel';
 import { useAppStore } from '../store/useAppStore';
 
 export function AboutPage() {
   const about = useAppStore((state) => state.about);
 
   return (
-    <div className="page">
+    <div className="page about-page-minimal">
       <div className="page-header">
         <div>
-          <span className="eyebrow">О программе</span>
-          <h1>Информация о сборке</h1>
-          <p>Версии компонентов и текущий объем поддержки в этой версии клиента.</p>
+          <span className="eyebrow">About</span>
+          <h1>Build information</h1>
+          <p>Component versions and the current support scope for this release.</p>
         </div>
       </div>
 
-      <div className="about-grid">
-        <Panel title="Версии" description="Собирается локально через Tauri backend">
-          <div className="diagnostic-list">
-            <div>
-              <span>Версия приложения</span>
-              <strong>{about?.appVersion ?? 'Неизвестно'}</strong>
-            </div>
-            <div>
-              <span>Версия Tauri</span>
-              <strong>{about?.tauriVersion ?? 'Неизвестно'}</strong>
-            </div>
-            <div>
-              <span>Версия Xray</span>
-              <strong>{about?.xrayVersion ?? 'Недоступно'}</strong>
-            </div>
-            <div>
-              <span>Платформа</span>
-              <strong>{about?.platform ?? 'windows'}</strong>
-            </div>
+      <div className="about-text-layout">
+        <section className="about-section">
+          <div className="about-section-heading">
+            <h2>Versions</h2>
+            <p>Built locally with the Tauri backend.</p>
           </div>
-        </Panel>
 
-        <Panel title="Поддержка" description="Реализовано в parser, config builder и backend-командах">
-          <div className="support-list">
-            <div>VLESS RAW / TCP / WS / gRPC / XHTTP / HTTPUpgrade / mKCP</div>
-            <div>Безопасность: None / TLS / Reality</div>
-            <div>Импорт через URI, JSON, подписки и Ctrl+V из буфера</div>
-            <div>Подключение через System proxy и TUN</div>
-            <div>Раздельное туннелирование для TUN и System proxy</div>
+          <div className="about-row">
+            <span>App version</span>
+            <strong>{about?.appVersion ?? 'Unknown'}</strong>
           </div>
-        </Panel>
+          <div className="about-row">
+            <span>Tauri version</span>
+            <strong>{about?.tauriVersion ?? 'Unknown'}</strong>
+          </div>
+          <div className="about-row">
+            <span>Xray version</span>
+            <strong>{about?.xrayVersion ?? 'Unavailable'}</strong>
+          </div>
+          <div className="about-row">
+            <span>Platform</span>
+            <strong>{about?.platform ?? 'windows'}</strong>
+          </div>
+        </section>
+
+        <section className="about-section">
+          <div className="about-section-heading">
+            <h2>Support</h2>
+            <p>Implemented in the parser, config builder and backend commands.</p>
+          </div>
+
+          <div className="about-row">
+            <span>VLESS modes</span>
+            <strong>RAW / TCP / WS / gRPC / XHTTP / HTTPUpgrade / mKCP</strong>
+          </div>
+          <div className="about-row">
+            <span>Security</span>
+            <strong>None / TLS / Reality</strong>
+          </div>
+          <div className="about-row">
+            <span>Import</span>
+            <strong>URI, JSON, subscriptions and Ctrl+V from clipboard</strong>
+          </div>
+          <div className="about-row">
+            <span>Connection modes</span>
+            <strong>System proxy and TUN</strong>
+          </div>
+          <div className="about-row">
+            <span>Split tunneling</span>
+            <strong>Available for TUN and System proxy</strong>
+          </div>
+        </section>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{ConnectionMode, Settings, SettingsPatch, SplitTunnelMode},
+    models::{Settings, SettingsPatch},
 };
 
 pub struct SettingsStore {
@@ -95,12 +95,6 @@ impl SettingsStore {
             settings.last_selected_profile_id = value;
         }
 
-        if matches!(settings.connection_mode, ConnectionMode::SystemProxy)
-            && matches!(settings.split_tunnel_mode, SplitTunnelMode::ProxyListed)
-        {
-            settings.split_tunnel_mode = SplitTunnelMode::BypassListed;
-        }
-
         let snapshot = settings.clone();
         self.persist(&snapshot).await?;
         Ok(snapshot)
@@ -147,6 +141,10 @@ fn normalize_ip_entries(values: Vec<String>) -> AppResult<Vec<String>> {
 }
 
 fn validate_ip_or_cidr(value: &str) -> AppResult<()> {
+    if value.starts_with("geoip:") {
+        return Ok(());
+    }
+
     if value.parse::<IpAddr>().is_ok() {
         return Ok(());
     }

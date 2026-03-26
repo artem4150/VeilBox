@@ -70,8 +70,8 @@ const defaultSettings: Settings = {
   launchAtStartup: false,
   minimizeToTray: true,
   autoReconnect: true,
-  theme: 'dark',
-  language: 'ru',
+  theme: 'light',
+  language: 'en',
   debugLogging: false,
   connectionMode: 'systemProxy',
   tunInterfaceName: 'xray0',
@@ -461,6 +461,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   selectProfile: async (profileId) => {
+    const currentConnection = get().connectionStatus;
+    const shouldReconnect =
+      !!profileId &&
+      currentConnection.state === 'connected' &&
+      currentConnection.activeProfileId !== profileId;
+
     set({ selectedProfileId: profileId });
     try {
       const settings = await backend.updateSettings({ lastSelectedProfileId: profileId });
@@ -470,6 +476,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
           ...settings,
         },
       }));
+
+      if (shouldReconnect && profileId) {
+        const disconnectedStatus = await backend.disconnect();
+        set({ connectionStatus: disconnectedStatus });
+
+        const reconnectedStatus = await backend.connect(profileId);
+        set({ connectionStatus: reconnectedStatus });
+        await get().refreshLogs('preview');
+      }
     } catch (error) {
       const payload = mapError(error);
       get().pushToast({

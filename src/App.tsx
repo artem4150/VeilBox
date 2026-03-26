@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
-import { ToastViewport } from './components/ToastViewport';
 import { applyTheme } from './lib/theme';
 import { AboutPage } from './pages/AboutPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -19,6 +18,7 @@ function AppContent() {
   const initialized = useAppStore((state) => state.initialized);
   const importProfile = useAppStore((state) => state.importProfile);
   const importProfilesJson = useAppStore((state) => state.importProfilesJson);
+  const importSubscription = useAppStore((state) => state.importSubscription);
 
   useEffect(() => {
     void initialize();
@@ -72,6 +72,12 @@ function AppContent() {
         return;
       }
 
+      if (/^https?:\/\//i.test(text)) {
+        event.preventDefault();
+        void importSubscription(text);
+        return;
+      }
+
       if (text.startsWith('{') || text.startsWith('[')) {
         event.preventDefault();
         void importProfilesJson(text);
@@ -80,7 +86,7 @@ function AppContent() {
 
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [importProfile, importProfilesJson]);
+  }, [importProfile, importProfilesJson, importSubscription]);
 
   return (
     <AppShell>
@@ -91,7 +97,6 @@ function AppContent() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <ToastViewport />
     </AppShell>
   );
 }

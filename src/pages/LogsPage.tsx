@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Panel } from '../components/Panel';
 import { LogViewer } from '../features/logs/LogViewer';
 import { useAppStore } from '../store/useAppStore';
 
@@ -14,6 +13,7 @@ export function LogsPage() {
         .join('\n'),
     [logs.app],
   );
+
   const connectionText = useMemo(
     () =>
       logs.connection
@@ -27,37 +27,38 @@ export function LogsPage() {
   };
 
   return (
-    <div className="page">
+    <div className="page logs-page-minimal">
       <div className="page-header">
         <div>
-          <span className="eyebrow">Логи</span>
-          <h1>Диагностика и журналы</h1>
-          <p>Логи приложения, подключения и вывод Xray с маскированием чувствительных значений.</p>
+          <span className="eyebrow">Logs</span>
+          <h1>Diagnostics and logs</h1>
+          <p>Application events, connection logs and masked Xray output.</p>
         </div>
       </div>
 
-      <div className="logs-layout">
-        <Panel
-          title="Логи подключения"
-          description="Сценарий connect/disconnect, системный proxy, TUN и вывод Xray"
-        >
+      <div className="logs-text-layout">
+        <section className="logs-section">
+          <div className="logs-section-heading">
+            <h2>Connection logs</h2>
+            <p>Connect/disconnect flow, system proxy, TUN and Xray output.</p>
+          </div>
+
           <LogViewer
-            title="Последнее подключение"
+            title="Latest connection session"
             entries={logs.connection}
             onCopy={() => void copy(connectionText)}
             onClear={() => void clearLogs()}
           />
-        </Panel>
-        <Panel
-          title="Логи приложения"
-          description="Хранилище, tray, восстановление состояния и общие события"
-        >
-          <LogViewer
-            title="Логи приложения"
-            entries={logs.app}
-            onCopy={() => void copy(appText)}
-          />
-        </Panel>
+        </section>
+
+        <section className="logs-section">
+          <div className="logs-section-heading">
+            <h2>Application logs</h2>
+            <p>Storage, tray, state recovery and general runtime events.</p>
+          </div>
+
+          <LogViewer title="Runtime log stream" entries={logs.app} onCopy={() => void copy(appText)} />
+        </section>
       </div>
     </div>
   );

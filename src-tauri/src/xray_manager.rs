@@ -17,10 +17,12 @@ use tokio::time::sleep;
 
 use crate::{
     config_builder::build_xray_config,
+    elevation_manager,
     error::{AppError, AppResult},
     models::{ConnectionMode, ConnectionState, ConnectionStatusPayload, LogLevel, LogSource, Profile, TestConnectionResult},
     proxy_manager_windows,
     state::{AppState, ManagedSession},
+    tun_route_manager,
 };
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -79,10 +81,14 @@ pub async fn test_profile_connection(
 pub async fn cleanup_on_launch(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();
     let runtime_snapshot = state.runtime_state.snapshot().await;
+    let settings_snapshot = state.settings_store.get().await;
     let cleaned = proxy_manager_windows::best_effort_cleanup(
         runtime_snapshot.last_proxy_string.clone(),
         runtime_snapshot.last_winhttp_dump.clone(),
     )?;
+    if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
+        let _ = tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
+    }
     if cleaned {
         let _ = state
             .log_if_enabled(
@@ -166,6 +172,20 @@ async fn start_session(
         .await
         .ok_or_else(|| AppError::not_found("Profile was not found"))?;
 
+    let settings_snapshot = state.settings_store.get().await;
+    if restart_count.is_none()
+        && elevation_manager::should_auto_elevate(
+            &settings_snapshot.connection_mode,
+            crate::network_interface_manager::is_elevated(),
+        )
+    {
+        elevation_manager::relaunch_as_administrator_for_tun(&profile.id)?;
+        app.exit(0);
+        return Err(AppError::state(
+            "Relaunching VailBox as Administrator for TUN mode.",
+        ));
+    }
+
     {
         let mut desired = state.connection.desired_profile_id.write().await;
         *desired = Some(profile.id.clone());
@@ -186,7 +206,7 @@ async fn start_session(
     match startup {
         Ok(status) => Ok(status),
         Err(error) => {
-            let _ = proxy_manager_windows::clear_proxy();
+            let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
             let _ = state.runtime_state.clear().await;
             let _ = tokio::fs::remove_file(&state.paths.temp_config_file).await;
             {
@@ -221,8 +241,9 @@ async fn run_xray(
     profile: &Profile,
     restart_count: u32,
 ) -> AppResult<ConnectionStatusPayload> {
-    let settings = state.settings_store.get().await;
+    let mut settings = state.settings_store.get().await;
     let tun_mode = matches!(settings.connection_mode, ConnectionMode::Tun);
+    let mut auto_outbound_interface = None;
 
     if !state.paths.sidecar_path.exists() {
         return Err(AppError::process(
@@ -232,6 +253,12 @@ async fn run_xray(
     }
     if tun_mode {
         ensure_tun_prerequisites(state)?;
+        if settings.tun_outbound_interface.is_none() {
+            let primary_route =
+                tun_route_manager::discover_primary_ipv4_route(Some(&settings.tun_interface_name))?;
+            auto_outbound_interface = Some(primary_route.interface_alias.clone());
+            settings.tun_outbound_interface = Some(primary_route.interface_alias);
+        }
     }
 
     let (socks_port, http_port) = pick_two_distinct_ports()?;
@@ -286,13 +313,21 @@ async fn run_xray(
     };
 
     if tun_mode {
-        let _ = proxy_manager_windows::clear_proxy();
+        let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
+        tun_route_manager::wait_for_interface(&settings.tun_interface_name, 8_000)?;
+        tun_route_manager::enable_full_tunnel(&settings.tun_interface_name)?;
     } else {
-        if let Err(error) = proxy_manager_windows::set_proxy(http_port, &settings) {
+        if let Err(error) =
+            proxy_manager_windows::set_proxy(http_port, &settings, &state.paths.proxy_pac_file)
+        {
             terminate_child(&child).await;
             return Err(error);
         }
-        if let Err(error) = proxy_manager_windows::apply_winhttp_proxy(http_port, &settings) {
+        if let Err(error) = proxy_manager_windows::apply_winhttp_proxy(
+            http_port,
+            &settings,
+            &state.paths.proxy_pac_file,
+        ) {
             let _ = state
                 .log_if_enabled(
                     LogSource::Connection,
@@ -364,8 +399,12 @@ async fn run_xray(
             LogLevel::Info,
             if tun_mode {
                 format!(
-                    "Connected profile '{}' in TUN mode. Local SOCKS diagnostic port 127.0.0.1:{socks_port}.",
-                    profile.name
+                    "Connected profile '{}' in TUN mode. Local SOCKS diagnostic port 127.0.0.1:{socks_port}. Outbound interface: {}.",
+                    profile.name,
+                    auto_outbound_interface
+                        .clone()
+                        .or_else(|| settings.tun_outbound_interface.clone())
+                        .unwrap_or_else(|| "automatic".to_string())
                 )
             } else {
                 format!(
@@ -395,8 +434,13 @@ async fn disconnect_locked(app: &AppHandle, state: &AppState) -> AppResult<Conne
     let mut proxy_error = None;
     let runtime_snapshot = state.runtime_state.snapshot().await;
 
-    if let Err(error) = proxy_manager_windows::clear_proxy() {
+    let settings_snapshot = state.settings_store.get().await;
+
+    if let Err(error) = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file)) {
         proxy_error = Some(error);
+    }
+    if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
+        let _ = tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
     }
     if let Err(error) =
         proxy_manager_windows::restore_winhttp_proxy(runtime_snapshot.last_winhttp_dump.as_deref())
@@ -499,7 +543,12 @@ fn spawn_session_monitor(
                             ),
                         )
                         .await;
-                    let _ = proxy_manager_windows::clear_proxy();
+                    let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
+                    let settings_snapshot = state.settings_store.get().await;
+                    if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
+                        let _ =
+                            tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
+                    }
                     let runtime_snapshot = state.runtime_state.snapshot().await;
                     let _ = proxy_manager_windows::restore_winhttp_proxy(
                         runtime_snapshot.last_winhttp_dump.as_deref(),

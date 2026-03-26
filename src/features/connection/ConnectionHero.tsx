@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
-import { FlaskConical, LoaderCircle, PencilLine, Power, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FlaskConical, PencilLine } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
-import { StatusBadge } from '../../components/StatusBadge';
+import { HeroShutterText } from '../../components/ui/hero-shutter-text';
 import { profileSubtitle } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useAppStore } from '../../store/useAppStore';
 import { CountryFlag } from '../../components/CountryFlag';
+
+type HeroDisplayState = 'disconnected' | 'connecting' | 'connected' | 'failed';
 
 export function ConnectionHero() {
   const status = useAppStore((state) => state.connectionStatus);
@@ -26,6 +28,11 @@ export function ConnectionHero() {
   const [editing, setEditing] = useState(false);
   const [profileDetailsOpen, setProfileDetailsOpen] = useState(false);
   const [timerNow, setTimerNow] = useState(() => Date.now());
+  const [displayState, setDisplayState] = useState<HeroDisplayState>(
+    status.state === 'error' ? 'disconnected' : status.state,
+  );
+  const connectingStartedAtRef = useRef<number | null>(null);
+  const transitionTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!(connected && status.connectedAt)) {
@@ -39,14 +46,69 @@ export function ConnectionHero() {
     return () => window.clearInterval(interval);
   }, [connected, status.connectedAt]);
 
+  useEffect(() => {
+    const clearPendingTransition = () => {
+      if (transitionTimerRef.current != null) {
+        window.clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
+
+    if (status.state === 'connecting') {
+      clearPendingTransition();
+      connectingStartedAtRef.current = Date.now();
+      setDisplayState('connecting');
+      return () => clearPendingTransition();
+    }
+
+    const elapsed = connectingStartedAtRef.current
+      ? Date.now() - connectingStartedAtRef.current
+      : 720;
+    const remaining = Math.max(0, 720 - elapsed);
+
+    if (status.state === 'error') {
+      clearPendingTransition();
+      transitionTimerRef.current = window.setTimeout(() => {
+        setDisplayState('failed');
+        transitionTimerRef.current = window.setTimeout(() => {
+          transitionTimerRef.current = null;
+          connectingStartedAtRef.current = null;
+          setDisplayState('disconnected');
+        }, 2000);
+      }, remaining);
+
+      return () => clearPendingTransition();
+    }
+
+    const nextStableState: HeroDisplayState =
+      status.state === 'connected' ? 'connected' : 'disconnected';
+
+    if (remaining > 0) {
+      clearPendingTransition();
+      transitionTimerRef.current = window.setTimeout(() => {
+        transitionTimerRef.current = null;
+        connectingStartedAtRef.current = null;
+        setDisplayState(nextStableState);
+      }, remaining);
+
+      return () => clearPendingTransition();
+    }
+
+    clearPendingTransition();
+    connectingStartedAtRef.current = null;
+    setDisplayState(nextStableState);
+
+    return () => clearPendingTransition();
+  }, [status.state]);
+
   const connectionDuration = useMemo(() => {
     if (!status.connectedAt) {
-      return t(language, 'unavailable');
+      return '00:00:00';
     }
 
     const startedAt = new Date(status.connectedAt).getTime();
     if (!Number.isFinite(startedAt)) {
-      return t(language, 'unavailable');
+      return '00:00:00';
     }
 
     const totalSeconds = Math.max(0, Math.floor((timerNow - startedAt) / 1000));
@@ -55,7 +117,30 @@ export function ConnectionHero() {
     const seconds = totalSeconds % 60;
 
     return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':');
-  }, [status.connectedAt, timerNow, language]);
+  }, [status.connectedAt, timerNow]);
+
+  const title = displayState === 'connecting'
+    ? t(language, 'heroConnecting')
+    : displayState === 'failed'
+      ? t(language, 'heroFailed')
+    : displayState === 'connected'
+      ? t(language, 'connected')
+      : t(language, 'heroConnect');
+  const titleTone =
+    displayState === 'connecting'
+      ? 'warning'
+      : displayState === 'failed'
+        ? 'error'
+      : displayState === 'connected'
+        ? 'success'
+        : 'default';
+
+  const modeLabel =
+    settings.connectionMode === 'tun'
+      ? `TUN ${settings.tunInterfaceName || 'xray0'}`
+      : status.localHttpProxyPort
+        ? `127.0.0.1:${status.localHttpProxyPort}`
+        : t(language, 'heroProxyInactive');
 
   const onPrimaryAction = async () => {
     if (connected) {
@@ -90,79 +175,48 @@ export function ConnectionHero() {
   };
 
   return (
-    <section className={`hero-card${connected ? ' hero-card-connected' : ''}${busy ? ' hero-card-connecting' : ''}`}>
-      <div className="hero-content">
-        <div>
-          <div className="hero-topline">
-            <StatusBadge state={status.state} />
-          </div>
-          <h2>{connected ? t(language, 'heroConnected') : t(language, 'heroReady')}</h2>
+    <section className="dashboard-hero">
+      <button
+        type="button"
+        className={`dashboard-hero-title${
+          displayState === 'connected' ? ' is-connected' : ''
+        }${displayState === 'connecting' ? ' is-connecting' : ''}${
+          displayState === 'failed' ? ' is-failed' : ''
+        }`}
+        onClick={() => void onPrimaryAction()}
+        disabled={busy || (!connected && !selectedProfile)}
+      >
+        <HeroShutterText text={title} tone={titleTone} />
+      </button>
 
-          <div className="hero-metrics">
-            <div>
-              <span>{t(language, 'heroConnectedFor')}</span>
-              <strong>{connected ? connectionDuration : t(language, 'unavailable')}</strong>
-            </div>
-            <div>
-              <span>{settings.connectionMode === 'tun' ? 'Режим' : 'HTTP proxy'}</span>
-              <strong>
-                {settings.connectionMode === 'tun'
-                  ? `TUN / ${settings.tunInterfaceName || 'xray0'}`
-                  : status.localHttpProxyPort
-                    ? `127.0.0.1:${status.localHttpProxyPort}`
-                    : t(language, 'heroProxyInactive')}
-              </strong>
-            </div>
-            <div>
-              <span>{t(language, 'heroRestarts')}</span>
-              <strong>{status.restartCount}</strong>
-            </div>
-            {selectedProfile ? (
-              <button
-                type="button"
-                className="hero-profile-metric hero-profile-button"
-                onClick={() => setProfileDetailsOpen(true)}
-              >
-                <span>{t(language, 'heroCurrentProfile')}</span>
-                <strong className="hero-profile-title">
-                  <CountryFlag
-                    code={selectedCountry?.countryCode}
-                    className="profile-flag"
-                    title={selectedCountry?.countryName ?? t(language, 'locationUnknown')}
-                  />
-                  <span>{selectedProfile.name}</span>
-                </strong>
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="hero-actions">
-          <Button
-            wide
-            className={`hero-connect-button${connected ? ' is-connected' : ''}${busy ? ' is-connecting' : ''}`}
-            disabled={busy || (!connected && !selectedProfile)}
-            onClick={() => void onPrimaryAction()}
-          >
-            {busy ? (
-              <LoaderCircle size={22} className="hero-connect-icon hero-connect-spinner" />
-            ) : (
-              <>
-                {connected ? (
-                  <ShieldCheck size={28} className="hero-connect-icon" />
-                ) : (
-                  <Power size={28} className="hero-connect-icon" />
-                )}
-              </>
-            )}
-            {busy ? t(language, 'heroConnecting') : connected ? t(language, 'connected') : t(language, 'heroConnect')}
-            {!connected ? (
-              <small className="hero-connect-subtext">
-                {busy ? status.message ?? t(language, 'heroPreparing') : t(language, 'heroTapToConnect')}
-              </small>
-            ) : null}
-          </Button>
-        </div>
+      <div className="dashboard-hero-meta">
+        <span>
+          {t(language, 'heroConnectedFor')} {connectionDuration}
+        </span>
+        <span>|</span>
+        <span>HTTP proxy {modeLabel}</span>
+        <span>|</span>
+        <span>
+          {t(language, 'heroRestarts')} {status.restartCount}
+        </span>
+        {selectedProfile ? (
+          <span className="dashboard-hero-profile-meta">
+            <span>|</span>
+            <button
+              type="button"
+              className="dashboard-hero-profile-link"
+              onClick={() => setProfileDetailsOpen(true)}
+            >
+              {t(language, 'heroCurrentProfile')}:&nbsp;
+              <CountryFlag
+                code={selectedCountry?.countryCode}
+                className="profile-flag"
+                title={selectedCountry?.countryName ?? t(language, 'locationUnknown')}
+              />
+              <span>{selectedProfile.name}</span>
+            </button>
+          </span>
+        ) : null}
       </div>
 
       {selectedProfile ? (

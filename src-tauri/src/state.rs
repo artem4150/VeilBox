@@ -29,6 +29,7 @@ pub struct AppPaths {
     pub app_log_file: PathBuf,
     pub connection_log_file: PathBuf,
     pub temp_config_file: PathBuf,
+    pub proxy_pac_file: PathBuf,
     pub sidecar_path: PathBuf,
 }
 
@@ -68,6 +69,7 @@ impl AppPaths {
             app_log_file: logs_dir.join("app.jsonl"),
             connection_log_file: logs_dir.join("connection.jsonl"),
             temp_config_file: runtime_dir.join("xray-active.json"),
+            proxy_pac_file: runtime_dir.join("system-proxy.pac"),
             sidecar_path,
         })
     }

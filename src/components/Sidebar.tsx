@@ -1,4 +1,4 @@
-import { Gauge, Info, Logs, PanelLeftClose, PanelLeftOpen, Settings } from 'lucide-react';
+import { Gauge, Info, Logs, Settings } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { Button } from './Button';
 import { t } from '../lib/i18n';
@@ -6,18 +6,17 @@ import { useAppStore } from '../store/useAppStore';
 
 interface SidebarProps {
   collapsed: boolean;
-  onToggle: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed }: SidebarProps) {
   const settings = useAppStore((state) => state.settings);
   const saveSettings = useAppStore((state) => state.saveSettings);
 
   const items = [
     { to: '/', label: t(settings.language, 'navDashboard'), icon: Gauge },
-    { to: '/logs', label: t(settings.language, 'navLogs'), icon: Logs },
     { to: '/settings', label: t(settings.language, 'navSettings'), icon: Settings },
     { to: '/about', label: t(settings.language, 'navAbout'), icon: Info },
+    { to: '/logs', label: t(settings.language, 'navLogs'), icon: Logs }
   ];
 
   return (
@@ -34,15 +33,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="sidebar-toggle"
-          title={collapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
-          aria-label={collapsed ? 'Развернуть боковую панель' : 'Свернуть боковую панель'}
-          onClick={onToggle}
-        >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -65,7 +55,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {!collapsed ? (
           <p>
             {settings.connectionMode === 'tun'
-              ? 'Sidecar Xray в режиме TUN.'
+              ? 'Sidecar Xray in TUN mode.'
               : t(settings.language, 'sidebarFooter')}
           </p>
         ) : null}

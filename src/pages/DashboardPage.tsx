@@ -12,7 +12,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { Modal } from '../components/Modal';
-import { Panel } from '../components/Panel';
 import { formatTimestamp } from '../lib/format';
 import { t } from '../lib/i18n';
 import { ConnectionHero } from '../features/connection/ConnectionHero';
@@ -38,10 +37,8 @@ export function DashboardPage() {
   const importProfile = useAppStore((state) => state.importProfile);
   const importProfilesJson = useAppStore((state) => state.importProfilesJson);
   const importSubscription = useAppStore((state) => state.importSubscription);
-  const duplicateProfile = useAppStore((state) => state.duplicateProfile);
   const deleteProfile = useAppStore((state) => state.deleteProfile);
   const refreshSubscription = useAppStore((state) => state.refreshSubscription);
-  const refreshAllSubscriptions = useAppStore((state) => state.refreshAllSubscriptions);
   const deleteSubscription = useAppStore((state) => state.deleteSubscription);
   const refreshLatencies = useAppStore((state) => state.refreshLatencies);
   const currentProfile = useMemo(
@@ -51,8 +48,8 @@ export function DashboardPage() {
 
   const [modalMode, setModalMode] = useState<ModalMode>('new');
   const [modalOpen, setModalOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [pinging, setPinging] = useState(false);
-  const [syncingAllSubscriptions, setSyncingAllSubscriptions] = useState(false);
   const [subscriptionActionId, setSubscriptionActionId] = useState<string | null>(null);
   const [collapsedSubscriptions, setCollapsedSubscriptions] = useState<Record<string, boolean>>(
     {},
@@ -60,6 +57,7 @@ export function DashboardPage() {
   const [search, setSearch] = useState('');
 
   const openModal = (mode: ModalMode) => {
+    setCreateMenuOpen(false);
     setModalMode(mode);
     setModalOpen(true);
   };
@@ -105,9 +103,13 @@ export function DashboardPage() {
     const aLatency = latencies[a.id];
     const bLatency = latencies[b.id];
     const aScore =
-      aLatency?.status === 'ok' ? (aLatency.latencyMs ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+      aLatency?.status === 'ok'
+        ? (aLatency.latencyMs ?? Number.MAX_SAFE_INTEGER)
+        : Number.MAX_SAFE_INTEGER;
     const bScore =
-      bLatency?.status === 'ok' ? (bLatency.latencyMs ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+      bLatency?.status === 'ok'
+        ? (bLatency.latencyMs ?? Number.MAX_SAFE_INTEGER)
+        : Number.MAX_SAFE_INTEGER;
 
     if (aScore !== bScore) {
       return aScore - bScore;
@@ -139,33 +141,8 @@ export function DashboardPage() {
     [profiles, subscriptions, latencies, profileCountries, selectedProfileId, normalizedSearch],
   );
 
-  const ungroupedSubscriptionProfiles = useMemo(
-    () =>
-      profiles
-        .filter(
-          (profile) =>
-            profile.source === 'subscription' &&
-            (!profile.subscriptionId ||
-              !subscriptions.some((subscription) => subscription.id === profile.subscriptionId)),
-        )
-        .filter(matchesSearch)
-        .sort(compareProfiles),
-    [profiles, subscriptions, latencies, profileCountries, selectedProfileId, normalizedSearch],
-  );
-
   const hasVisibleProfiles =
-    manualProfiles.length > 0 ||
-    subscriptionGroups.some((group) => group.profiles.length > 0) ||
-    ungroupedSubscriptionProfiles.length > 0;
-
-  const handleRefreshAllSubscriptions = async () => {
-    setSyncingAllSubscriptions(true);
-    try {
-      await refreshAllSubscriptions();
-    } finally {
-      setSyncingAllSubscriptions(false);
-    }
-  };
+    manualProfiles.length > 0 || subscriptionGroups.some((group) => group.profiles.length > 0);
 
   const handleRefreshSubscription = async (subscriptionId: string) => {
     setSubscriptionActionId(subscriptionId);
@@ -192,9 +169,9 @@ export function DashboardPage() {
         ? `${t(language, 'profileEdit')} ${t(language, 'profileEntity')}`
         : modalMode === 'uri'
           ? t(language, 'importUri')
-            : modalMode === 'json'
-              ? t(language, 'importJson')
-              : t(language, 'importSubscription');
+          : modalMode === 'json'
+            ? t(language, 'importJson')
+            : t(language, 'importSubscription');
 
   useEffect(() => {
     const handler = () => {
@@ -209,205 +186,169 @@ export function DashboardPage() {
   }, [selectedProfileId]);
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <span className="eyebrow">{t(language, 'dashboardEyebrow')}</span>
-          <h1>{t(language, 'dashboardTitle')}</h1>
-        </div>
-      </div>
-
+    <div className="page dashboard-page dashboard-page-reference">
       <ConnectionHero />
 
-      <div className="dashboard-grid dashboard-grid-single">
-        <Panel
-          className="profiles-panel"
-          title={t(language, 'profilesTitle')}
-          action={
-            <div className="button-row profiles-toolbar">
-              <Button variant="secondary" onClick={() => openModal('new')}>
-                <Plus size={16} />
-                {t(language, 'profileNew')}
-              </Button>
-              <Button variant="ghost" onClick={() => openModal('uri')}>
-                <Upload size={16} />
-                VLESS URI
-              </Button>
-              <Button variant="ghost" onClick={() => openModal('json')}>
-                <FileJson size={16} />
-                JSON
-              </Button>
-              <Button variant="ghost" onClick={() => openModal('subscription')}>
-                <Link2 size={16} />
-                {t(language, 'subscriptionAction')}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={syncingAllSubscriptions || subscriptions.length === 0}
-                onClick={() => void handleRefreshAllSubscriptions()}
-              >
-                <RefreshCw
-                  size={16}
-                  className={syncingAllSubscriptions ? 'icon-spin' : undefined}
-                />
-                {syncingAllSubscriptions
-                  ? t(language, 'subscriptionsUpdating')
-                  : t(language, 'subscriptionsUpdateAll')}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={pinging || profiles.length === 0}
-                onClick={() => void pingAll()}
-              >
-                <RefreshCw size={16} className={pinging ? 'icon-spin' : undefined} />
-                {pinging ? t(language, 'pinging') : t(language, 'pingAll')}
-              </Button>
-            </div>
-          }
-        >
-          {profiles.length ? (
-            <div className="profile-list">
-              <label className="profile-search profiles-search-compact">
-                <Search size={16} />
-                <input
-                  className="input profile-search-input"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t(language, 'profilesSearchPlaceholder')}
-                />
-              </label>
+      <section className="dashboard-toolbar-row">
+        <div className="dashboard-toolbar-left">
+          <button
+            type="button"
+            className="dashboard-toolbar-button"
+            onClick={() => setCreateMenuOpen(true)}
+          >
+            <Plus size={18} />
+            <span>{t(language, 'profileNew')}</span>
+          </button>
+          <button
+            type="button"
+            className="dashboard-toolbar-button"
+            disabled={pinging || profiles.length === 0}
+            onClick={() => void pingAll()}
+          >
+            <RefreshCw size={18} className={pinging ? 'icon-spin' : undefined} />
+            <span>{pinging ? t(language, 'pinging') : t(language, 'pingAll')}</span>
+          </button>
+        </div>
 
-              {manualProfiles.length > 0 ? (
-                <>
-                  {subscriptionGroups.length > 0 || ungroupedSubscriptionProfiles.length > 0 ? (
-                    <div className="profile-group-label">{t(language, 'profilesManualGroup')}</div>
-                  ) : null}
-                  {manualProfiles.map((profile) => (
-                    <ProfileListItem
-                      key={profile.id}
-                      profile={profile}
-                      selected={selectedProfileId === profile.id}
-                      active={selectedProfileId === profile.id}
-                      latency={latencies[profile.id]}
-                      country={profileCountries[profile.id]}
-                      onSelect={() => void selectProfile(profile.id)}
-                      onActivate={() => void selectProfile(profile.id)}
-                      onDuplicate={() => void duplicateProfile(profile.id)}
-                      onDelete={() => void deleteProfile(profile.id)}
-                    />
-                  ))}
-                </>
-              ) : null}
+        <label className="dashboard-search">
+          <Search size={20} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t(language, 'profilesSearchPlaceholder')}
+          />
+        </label>
+      </section>
 
-              {subscriptionGroups.map(({ subscription, profiles: groupProfiles }) =>
-                groupProfiles.length > 0 ? (
-                  <div key={subscription.id} className="subscription-group">
-                    <div className="subscription-group-header">
+      <section className="dashboard-list-shell">
+        {profiles.length ? (
+          <div className="dashboard-flat-list">
+            {manualProfiles.map((profile) => (
+              <ProfileListItem
+                key={profile.id}
+                profile={profile}
+                selected={selectedProfileId === profile.id}
+                active={selectedProfileId === profile.id}
+                latency={latencies[profile.id]}
+                country={profileCountries[profile.id]}
+                onSelect={() => void selectProfile(profile.id)}
+                onActivate={() => void selectProfile(profile.id)}
+                onDuplicate={() => undefined}
+                onDelete={() => void deleteProfile(profile.id)}
+              />
+            ))}
+
+            {subscriptionGroups.map(({ subscription, profiles: groupProfiles }) =>
+              groupProfiles.length > 0 ? (
+                <div key={subscription.id} className="dashboard-subscription">
+                  <div className="dashboard-subscription-row">
+                    <button
+                      type="button"
+                      className="dashboard-subscription-toggle"
+                      onClick={() => toggleSubscription(subscription.id)}
+                    >
+                      <ChevronDown
+                        size={16}
+                        className={`subscription-chevron${
+                          collapsedSubscriptions[subscription.id] ? ' is-collapsed' : ''
+                        }`}
+                      />
+                      <div className="dashboard-subscription-meta">
+                        <strong>{subscription.name}</strong>
+                        <span className="dashboard-subscription-count">
+                          {groupProfiles.length} {t(language, 'subscriptionProfilesCount')}
+                        </span>
+                        <span className="dashboard-subscription-date">
+                          {formatTimestamp(subscription.updatedAt, language)}
+                        </span>
+                      </div>
+                    </button>
+                    <div className="dashboard-subscription-actions">
                       <button
                         type="button"
-                        className="subscription-group-toggle"
-                        onClick={() => toggleSubscription(subscription.id)}
+                        className="dashboard-inline-chip"
+                        disabled={subscriptionActionId === subscription.id}
+                        onClick={() => void handleRefreshSubscription(subscription.id)}
                       >
-                        <ChevronDown
-                          size={16}
-                          className={`subscription-chevron${
-                            collapsedSubscriptions[subscription.id] ? ' is-collapsed' : ''
-                          }`}
-                        />
-                        <div className="subscription-group-title-row">
-                          <strong>{subscription.name}</strong>
-                          <span className="subscription-group-meta">
-                            {groupProfiles.length} {t(language, 'subscriptionProfilesCount')} ·{' '}
-                            {t(language, 'subscriptionUpdatedAt')}{' '}
-                            {formatTimestamp(subscription.updatedAt, language)}
-                          </span>
-                        </div>
+                        {t(language, 'subscriptionRefresh')}
                       </button>
-                      <div className="subscription-group-actions">
-                        <Button
-                          variant="ghost"
-                          disabled={subscriptionActionId === subscription.id}
-                          onClick={() => void handleRefreshSubscription(subscription.id)}
-                          title={t(language, 'subscriptionRefresh')}
-                        >
-                          <RefreshCw
-                            size={15}
-                            className={subscriptionActionId === subscription.id ? 'icon-spin' : undefined}
-                          />
-                          {t(language, 'subscriptionRefresh')}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="danger-ghost"
-                          disabled={subscriptionActionId === subscription.id}
-                          onClick={() => void handleDeleteSubscription(subscription.id)}
-                          title={t(language, 'subscriptionDelete')}
-                        >
-                          <Trash2 size={15} />
-                          {t(language, 'subscriptionDelete')}
-                        </Button>
-                      </div>
+                      <button
+                        type="button"
+                        className="dashboard-delete-icon"
+                        disabled={subscriptionActionId === subscription.id}
+                        onClick={() => void handleDeleteSubscription(subscription.id)}
+                        aria-label={t(language, 'subscriptionDelete')}
+                        title={t(language, 'subscriptionDelete')}
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                    {!collapsedSubscriptions[subscription.id] ? (
-                      <div className="subscription-group-body">
-                        {groupProfiles.map((profile) => (
-                          <ProfileListItem
-                            key={profile.id}
-                            profile={profile}
-                            selected={selectedProfileId === profile.id}
-                            active={selectedProfileId === profile.id}
-                            latency={latencies[profile.id]}
-                            country={profileCountries[profile.id]}
-                            onSelect={() => void selectProfile(profile.id)}
-                            onActivate={() => void selectProfile(profile.id)}
-                            onDuplicate={() => void duplicateProfile(profile.id)}
-                            onDelete={() => void deleteProfile(profile.id)}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
-                ) : null,
-              )}
+                  {!collapsedSubscriptions[subscription.id] ? (
+                    <div className="dashboard-subscription-list">
+                      {groupProfiles.map((profile) => (
+                        <ProfileListItem
+                          key={profile.id}
+                          profile={profile}
+                          selected={selectedProfileId === profile.id}
+                          active={selectedProfileId === profile.id}
+                          latency={latencies[profile.id]}
+                          country={profileCountries[profile.id]}
+                          onSelect={() => void selectProfile(profile.id)}
+                          onActivate={() => void selectProfile(profile.id)}
+                          onDuplicate={() => undefined}
+                          onDelete={() => void deleteProfile(profile.id)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null,
+            )}
 
-              {ungroupedSubscriptionProfiles.length > 0 ? (
-                <>
-                  <div className="profile-group-label">
-                    {t(language, 'profilesSubscriptionGroup')}
-                  </div>
-                  {ungroupedSubscriptionProfiles.map((profile) => (
-                    <ProfileListItem
-                      key={profile.id}
-                      profile={profile}
-                      selected={selectedProfileId === profile.id}
-                      active={selectedProfileId === profile.id}
-                      latency={latencies[profile.id]}
-                      country={profileCountries[profile.id]}
-                      onSelect={() => void selectProfile(profile.id)}
-                      onActivate={() => void selectProfile(profile.id)}
-                      onDuplicate={() => void duplicateProfile(profile.id)}
-                      onDelete={() => void deleteProfile(profile.id)}
-                    />
-                  ))}
-                </>
-              ) : null}
+            {!hasVisibleProfiles ? (
+              <EmptyState
+                title={t(language, 'profilesSearchEmptyTitle')}
+                message={t(language, 'profilesSearchEmptyBody')}
+              />
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState
+            title={t(language, 'noProfilesTitle')}
+            message={t(language, 'noProfilesBody')}
+          />
+        )}
+      </section>
 
-              {!hasVisibleProfiles ? (
-                <EmptyState
-                  title={t(language, 'profilesSearchEmptyTitle')}
-                  message={t(language, 'profilesSearchEmptyBody')}
-                />
-              ) : null}
-            </div>
-          ) : (
-            <EmptyState
-              title={t(language, 'noProfilesTitle')}
-              message={t(language, 'noProfilesBody')}
-            />
-          )}
-        </Panel>
-
-      </div>
+      <Modal
+        open={createMenuOpen}
+        title={t(language, 'profileNew')}
+        onClose={() => setCreateMenuOpen(false)}
+      >
+        <div className="import-option-grid">
+          <button type="button" className="import-option-button" onClick={() => openModal('new')}>
+            <Plus size={18} />
+            <span>{t(language, 'profileNew')}</span>
+          </button>
+          <button type="button" className="import-option-button" onClick={() => openModal('uri')}>
+            <Upload size={18} />
+            <span>VLESS URI</span>
+          </button>
+          <button type="button" className="import-option-button" onClick={() => openModal('json')}>
+            <FileJson size={18} />
+            <span>JSON</span>
+          </button>
+          <button
+            type="button"
+            className="import-option-button"
+            onClick={() => openModal('subscription')}
+          >
+            <Link2 size={18} />
+            <span>{t(language, 'subscriptionAction')}</span>
+          </button>
+        </div>
+      </Modal>
 
       <Modal open={modalOpen} title={modalTitle} onClose={closeModal}>
         {modalMode === 'uri' ? (
