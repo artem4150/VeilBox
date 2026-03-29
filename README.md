@@ -1,60 +1,82 @@
 # VeilBox
 
-VeilBox is a Windows desktop client built with Tauri and powered by Xray routing.  
-It helps you quickly import VLESS profiles, choose the right route, and manage connections without an overloaded UI.
+VeilBox is a modern Windows VPN client built for fast profile import, clean routing control, and a simple daily workflow.
 
-![VeilBox Dashboard](./.github/assets/dashboard.png)
+It supports `VLESS/Xray`, `System Proxy`, `TUN`, split tunneling, subscriptions, and `AmneziaWG` import in one desktop app.
 
-## Screenshots
+Website: [https://veilbox.site/](https://veilbox.site/)
 
-| Logs | Settings |
-| --- | --- |
-| ![VeilBox Logs](./.github/assets/logs.png) | ![VeilBox Settings](./.github/assets/settings.png) |
+![VeilBox Build Info](./.github/assets/screenshot-buildinfo.gif)
 
-## Advantages
+## Why VeilBox
 
-- Clean interface: connection control, profiles, import, and route selection are all in one place.
-- Fast setup: supports import via `VLESS URI`, `JSON`, subscriptions, and regular `Ctrl+V`.
-- Flexible traffic handling: includes `System Proxy`, `TUN`, and split tunneling.
-- Built for daily use: tray support, autostart, auto reconnect, themes, and language switching.
-- Useful diagnostics: latency checks, profile testing, app logs, connection logs, and Xray output.
+- Clean desktop UI with no overloaded panels
+- Fast import from `VLESS URI`, `JSON`, subscriptions, `Amnezia`, and `Ctrl+V`
+- `System Proxy` and `TUN` modes in one app
+- Split tunneling for real daily use
+- Profile ping, connection test, grouped subscriptions, and logs
+- Tray support, autostart, auto reconnect, light and dark themes
 
-## Features
+## What It Supports
 
-- Connection management through `Xray` with local profile storage.
-- Manual profile creation, editing, duplication, and deletion.
-- Subscription import and refresh with grouped profiles.
-- Latency checks for quickly picking the best server.
-- Support for `VLESS` profiles with `Reality`, `TLS`, `WS`, `gRPC`, `XHTTP`, `HTTPUpgrade`, and `mKCP`.
-- Connection mode selection: `System Proxy` or `TUN`.
-- Split tunneling by domains and IP/CIDR.
-- Last selected profile persistence and session recovery.
+- `VLESS`: `RAW / TCP / WS / gRPC / XHTTP / HTTPUpgrade / mKCP`
+- Security: `None / TLS / Reality`
+- Engines:
+  - `Xray`
+  - `AmneziaWG` import and runtime support
+- Connection modes:
+  - `System Proxy`
+  - `TUN`
 
 ## Quick Start
 
-1. Place `xray.exe` into `src-tauri/bin/xray.exe`.
-2. For `TUN` mode, place `wintun.dll` into `src-tauri/bin/wintun.dll`.
-3. Install dependencies:
+1. Put `xray.exe` into:
+
+```text
+src-tauri/bin/xray.exe
+```
+
+2. For `TUN` mode, also put:
+
+```text
+src-tauri/bin/wintun.dll
+```
+
+3. For `AmneziaWG`, put:
+
+```text
+src-tauri/bin/amneziawg.exe
+src-tauri/bin/awg.exe
+```
+
+4. Install dependencies:
 
 ```powershell
 npm install
 ```
 
-4. Start the app:
+5. Run in development:
 
 ```powershell
 npm run tauri dev
 ```
 
-5. Build a release:
+6. Build installer:
 
 ```powershell
 npm run tauri build
 ```
 
+The NSIS installer will be generated here:
+
+```text
+src-tauri/target/release/bundle/nsis/
+```
+
 ## Platform
 
-- Windows 10/11
+- Windows 10
+- Windows 11
 
 ## Legal
 
