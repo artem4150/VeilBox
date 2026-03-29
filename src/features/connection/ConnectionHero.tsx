@@ -22,6 +22,7 @@ export function ConnectionHero() {
   const testProfileConnection = useAppStore((state) => state.testProfileConnection);
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedCountry = selectedProfile ? profileCountries[selectedProfile.id] : null;
+  const supportsInlineTest = selectedProfile?.engine !== 'amneziawg';
   const busy = status.state === 'connecting';
   const connected = status.state === 'connected';
   const [testing, setTesting] = useState(false);
@@ -238,7 +239,7 @@ export function ConnectionHero() {
             <div className="button-row hero-inline-actions">
               <Button
                 variant="ghost"
-                disabled={testing || busy}
+                disabled={testing || busy || !supportsInlineTest}
                 onClick={() => void onTestAction()}
                 title={testing ? t(language, 'testingConnection') : t(language, 'testConnection')}
                 aria-label={testing ? t(language, 'testingConnection') : t(language, 'testConnection')}

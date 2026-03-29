@@ -42,6 +42,8 @@ interface AppStore {
   duplicateProfile: (id: string) => Promise<void>;
   importProfile: (uri: string) => Promise<void>;
   importProfilesJson: (json: string) => Promise<void>;
+  importAmneziaConfig: (config: string, name?: string) => Promise<void>;
+  importAmneziaUri: (uri: string) => Promise<void>;
   importSubscription: (url: string) => Promise<void>;
   refreshSubscription: (subscriptionId: string) => Promise<void>;
   refreshAllSubscriptions: () => Promise<void>;
@@ -364,6 +366,46 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const payload = mapError(error);
       get().pushToast({
         title: 'Ошибка импорта JSON',
+        message: payload.message,
+        tone: 'error',
+      });
+    }
+  },
+
+  importAmneziaConfig: async (config, name) => {
+    try {
+      const profile = await backend.importAmneziaConfig(config, name);
+      await get().refreshProfiles();
+      await get().selectProfile(profile.id);
+      get().pushToast({
+        title: 'Amnezia config imported',
+        message: `${profile.name} is ready in the shared profile list.`,
+        tone: 'success',
+      });
+    } catch (error) {
+      const payload = mapError(error);
+      get().pushToast({
+        title: 'Amnezia import failed',
+        message: payload.message,
+        tone: 'error',
+      });
+    }
+  },
+
+  importAmneziaUri: async (uri) => {
+    try {
+      const profile = await backend.importAmneziaUri(uri);
+      await get().refreshProfiles();
+      await get().selectProfile(profile.id);
+      get().pushToast({
+        title: 'Amnezia link imported',
+        message: `${profile.name} is ready in the shared profile list.`,
+        tone: 'success',
+      });
+    } catch (error) {
+      const payload = mapError(error);
+      get().pushToast({
+        title: 'Amnezia link import failed',
         message: payload.message,
         tone: 'error',
       });

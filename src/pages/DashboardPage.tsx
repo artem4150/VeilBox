@@ -15,6 +15,8 @@ import { Modal } from '../components/Modal';
 import { formatTimestamp } from '../lib/format';
 import { t } from '../lib/i18n';
 import { ConnectionHero } from '../features/connection/ConnectionHero';
+import { AmneziaProfileForm } from '../features/profiles/AmneziaProfileForm';
+import { ImportAmneziaDialog } from '../features/profiles/ImportAmneziaDialog';
 import { ImportJsonDialog } from '../features/profiles/ImportJsonDialog';
 import { ImportProfileDialog } from '../features/profiles/ImportProfileDialog';
 import { ImportSubscriptionDialog } from '../features/profiles/ImportSubscriptionDialog';
@@ -23,7 +25,7 @@ import { ProfileListItem } from '../features/profiles/ProfileListItem';
 import { useAppStore } from '../store/useAppStore';
 import type { Profile } from '../types';
 
-type ModalMode = 'new' | 'edit' | 'uri' | 'json' | 'subscription';
+type ModalMode = 'new' | 'edit' | 'uri' | 'json' | 'subscription' | 'amnezia';
 
 export function DashboardPage() {
   const profiles = useAppStore((state) => state.profiles);
@@ -36,6 +38,8 @@ export function DashboardPage() {
   const saveProfile = useAppStore((state) => state.saveProfile);
   const importProfile = useAppStore((state) => state.importProfile);
   const importProfilesJson = useAppStore((state) => state.importProfilesJson);
+  const importAmneziaConfig = useAppStore((state) => state.importAmneziaConfig);
+  const importAmneziaUri = useAppStore((state) => state.importAmneziaUri);
   const importSubscription = useAppStore((state) => state.importSubscription);
   const deleteProfile = useAppStore((state) => state.deleteProfile);
   const refreshSubscription = useAppStore((state) => state.refreshSubscription);
@@ -171,6 +175,8 @@ export function DashboardPage() {
           ? t(language, 'importUri')
           : modalMode === 'json'
             ? t(language, 'importJson')
+            : modalMode === 'amnezia'
+              ? t(language, 'importAmnezia')
             : t(language, 'importSubscription');
 
   useEffect(() => {
@@ -342,6 +348,14 @@ export function DashboardPage() {
           <button
             type="button"
             className="import-option-button"
+            onClick={() => openModal('amnezia')}
+          >
+            <Upload size={18} />
+            <span>Amnezia</span>
+          </button>
+          <button
+            type="button"
+            className="import-option-button"
             onClick={() => openModal('subscription')}
           >
             <Link2 size={18} />
@@ -371,6 +385,26 @@ export function DashboardPage() {
               await importSubscription(url);
               closeModal();
             }}
+          />
+        ) : modalMode === 'amnezia' ? (
+          <ImportAmneziaDialog
+            onImport={async (config, name) => {
+              if (/^(?:amnezia\s+)?vpn:\/\//i.test(config.trim())) {
+                await importAmneziaUri(config.trim());
+              } else {
+                await importAmneziaConfig(config, name);
+              }
+              closeModal();
+            }}
+          />
+        ) : modalMode === 'edit' && currentProfile?.engine === 'amneziawg' ? (
+          <AmneziaProfileForm
+            profile={currentProfile}
+            onSave={async (draft) => {
+              await saveProfile(draft);
+              closeModal();
+            }}
+            onCancel={closeModal}
           />
         ) : (
           <ProfileForm

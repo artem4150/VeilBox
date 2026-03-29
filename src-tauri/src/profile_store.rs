@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{NetworkType, Profile, ProfileInput, ProfileSource, SecurityType},
+    models::{AmneziaConfig, NetworkType, Profile, ProfileEngine, ProfileInput, ProfileSource, SecurityType},
 };
 
 pub struct ProfileStore {
@@ -63,14 +63,18 @@ impl ProfileStore {
             .clone()
             .or_else(|| existing.as_ref().map(|profile| profile.source.clone()))
             .unwrap_or(ProfileSource::Manual);
+        let engine = input.engine;
         let source_label = trim_option(input.source_label.clone())
             .or_else(|| existing.as_ref().and_then(|profile| profile.source_label.clone()));
         let subscription_id = trim_option(input.subscription_id.clone())
             .or_else(|| existing.as_ref().and_then(|profile| profile.subscription_id.clone()));
+        let amnezia_config = normalize_amnezia_config(input.amnezia_config)
+            .or_else(|| existing.as_ref().and_then(|profile| profile.amnezia_config.clone()));
 
         let profile = Profile {
             id: input.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: input.name.trim().to_string(),
+            engine,
             server_address: input.server_address.trim().to_string(),
             port: input.port,
             uuid: input.uuid.trim().to_string(),
@@ -99,6 +103,7 @@ impl ProfileStore {
             source,
             source_label,
             subscription_id,
+            amnezia_config,
             created_at: now,
             updated_at: now,
         };
@@ -138,6 +143,7 @@ impl ProfileStore {
         self.save(ProfileInput {
             id: None,
             name: format!("{} Copy", original.name),
+            engine: original.engine,
             server_address: original.server_address,
             port: original.port,
             uuid: original.uuid,
@@ -161,6 +167,7 @@ impl ProfileStore {
             source: Some(original.source),
             source_label: original.source_label,
             subscription_id: original.subscription_id,
+            amnezia_config: original.amnezia_config,
         })
         .await
     }
@@ -193,6 +200,13 @@ fn validate_profile_input(input: &ProfileInput) -> AppResult<()> {
     if input.name.trim().is_empty() {
         return Err(AppError::validation("Profile name is required"));
     }
+    match input.engine {
+        ProfileEngine::Xray => validate_xray_profile_input(input),
+        ProfileEngine::Amneziawg => validate_amnezia_profile_input(input),
+    }
+}
+
+fn validate_xray_profile_input(input: &ProfileInput) -> AppResult<()> {
     if input.server_address.trim().is_empty() {
         return Err(AppError::validation("Server address is required"));
     }
@@ -247,4 +261,74 @@ fn validate_profile_input(input: &ProfileInput) -> AppResult<()> {
     }
 
     Ok(())
+}
+
+fn validate_amnezia_profile_input(input: &ProfileInput) -> AppResult<()> {
+    let config = normalize_amnezia_config(input.amnezia_config.clone())
+        .ok_or_else(|| AppError::validation("Amnezia config is required"))?;
+    if input.server_address.trim().is_empty() {
+        return Err(AppError::validation("Endpoint host is required"));
+    }
+    Host::parse(input.server_address.trim())
+        .map_err(|_| AppError::validation("Endpoint host is invalid"))?;
+    if input.port == 0 {
+        return Err(AppError::validation("Endpoint port must be between 1 and 65535"));
+    }
+    if config.interface_private_key.trim().is_empty() {
+        return Err(AppError::validation("Amnezia interface private key is required"));
+    }
+    if config.peer_public_key.trim().is_empty() {
+        return Err(AppError::validation("Amnezia peer public key is required"));
+    }
+    if config.interface_addresses.is_empty() {
+        return Err(AppError::validation("At least one interface address is required"));
+    }
+    if config.allowed_ips.is_empty() {
+        return Err(AppError::validation("At least one allowed IP range is required"));
+    }
+
+    Ok(())
+}
+
+fn normalize_amnezia_config(value: Option<AmneziaConfig>) -> Option<AmneziaConfig> {
+    value.map(|config| AmneziaConfig {
+        raw_config: config.raw_config.trim().to_string(),
+        interface_addresses: config
+            .interface_addresses
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect(),
+        dns_servers: config
+            .dns_servers
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect(),
+        interface_private_key: config.interface_private_key.trim().to_string(),
+        endpoint_host: config.endpoint_host.trim().to_string(),
+        endpoint_port: config.endpoint_port,
+        peer_public_key: config.peer_public_key.trim().to_string(),
+        allowed_ips: config
+            .allowed_ips
+            .into_iter()
+            .map(|entry| entry.trim().to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect(),
+        preshared_key: trim_option(config.preshared_key),
+        persistent_keepalive: config.persistent_keepalive,
+        advanced_params: config
+            .advanced_params
+            .into_iter()
+            .filter_map(|entry| {
+                let key = entry.key.trim().to_string();
+                let value = entry.value.trim().to_string();
+                if key.is_empty() || value.is_empty() {
+                    None
+                } else {
+                    Some(crate::models::AmneziaParam { key, value })
+                }
+            })
+            .collect(),
+    })
 }

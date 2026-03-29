@@ -18,6 +18,8 @@ function AppContent() {
   const initialized = useAppStore((state) => state.initialized);
   const importProfile = useAppStore((state) => state.importProfile);
   const importProfilesJson = useAppStore((state) => state.importProfilesJson);
+  const importAmneziaConfig = useAppStore((state) => state.importAmneziaConfig);
+  const importAmneziaUri = useAppStore((state) => state.importAmneziaUri);
   const importSubscription = useAppStore((state) => state.importSubscription);
 
   useEffect(() => {
@@ -78,7 +80,18 @@ function AppContent() {
         return;
       }
 
+      if (/^(?:amnezia\s+)?vpn:\/\//i.test(text)) {
+        event.preventDefault();
+        void importAmneziaUri(text);
+        return;
+      }
+
       if (text.startsWith('{') || text.startsWith('[')) {
+        if (/\[interface\][\s\S]*\[peer\]/i.test(text)) {
+          event.preventDefault();
+          void importAmneziaConfig(text);
+          return;
+        }
         event.preventDefault();
         void importProfilesJson(text);
       }
@@ -86,7 +99,7 @@ function AppContent() {
 
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [importProfile, importProfilesJson, importSubscription]);
+  }, [importAmneziaConfig, importAmneziaUri, importProfile, importProfilesJson, importSubscription]);
 
   return (
     <AppShell>

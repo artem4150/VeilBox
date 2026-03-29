@@ -84,6 +84,7 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
     try {
       await onSave({
         id: profile?.id,
+        engine: 'xray',
         ...draft,
         flow: draft.flow || null,
         sni: draft.sni || null,

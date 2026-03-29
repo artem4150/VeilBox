@@ -1,6 +1,6 @@
 import { Trash2 } from 'lucide-react';
 import { CountryFlag } from '../../components/CountryFlag';
-import { formatLatency } from '../../lib/format';
+import { formatLatency, profileTransportLabel } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useAppStore } from '../../store/useAppStore';
 import type { Profile, ProfileCountry, ProfileLatency } from '../../types';
@@ -28,6 +28,7 @@ export function ProfileListItem({
 }: ProfileListItemProps) {
   const language = useAppStore((state) => state.settings.language);
   const latencyTone = latency?.status ?? 'checking';
+  const transportLabel = profileTransportLabel(profile);
 
   return (
     <div
@@ -52,9 +53,9 @@ export function ProfileListItem({
         {active ? <span className="dashboard-active-chip">{t(language, 'profileActive')}</span> : null}
         <span
           className="dashboard-profile-meta"
-          title={`${profile.networkType.toUpperCase()} / ${profile.securityType.toUpperCase()}`}
+          title={transportLabel}
         >
-          {profile.networkType.toUpperCase()}/{profile.securityType.toUpperCase()}
+          {transportLabel}
         </span>
       </div>
 

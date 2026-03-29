@@ -3,15 +3,36 @@ export type AppLanguage = 'ru' | 'en';
 export type ConnectionMode = 'systemProxy' | 'tun';
 export type SplitTunnelMode = 'disabled' | 'bypassListed' | 'proxyListed';
 export type ProfileSource = 'manual' | 'subscription';
+export type ProfileEngine = 'xray' | 'amneziawg';
 export type NetworkType = 'raw' | 'tcp' | 'ws' | 'grpc' | 'xhttp' | 'httpupgrade' | 'kcp';
 export type SecurityType = 'none' | 'reality' | 'tls';
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type LogSource = 'app' | 'connection' | 'xray-stdout' | 'xray-stderr';
 
+export interface AmneziaParam {
+  key: string;
+  value: string;
+}
+
+export interface AmneziaConfig {
+  rawConfig: string;
+  interfaceAddresses: string[];
+  dnsServers: string[];
+  interfacePrivateKey: string;
+  endpointHost: string;
+  endpointPort: number;
+  peerPublicKey: string;
+  allowedIps: string[];
+  presharedKey: string | null;
+  persistentKeepalive: number | null;
+  advancedParams: AmneziaParam[];
+}
+
 export interface Profile {
   id: string;
   name: string;
+  engine: ProfileEngine;
   serverAddress: string;
   port: number;
   uuid: string;
@@ -35,6 +56,7 @@ export interface Profile {
   source: ProfileSource;
   sourceLabel: string | null;
   subscriptionId: string | null;
+  amneziaConfig: AmneziaConfig | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -140,6 +162,7 @@ export interface ToastMessage {
 }
 
 export interface ManualProfileDraft {
+  engine?: 'xray';
   name: string;
   serverAddress: string;
   port: number;
@@ -161,4 +184,10 @@ export interface ManualProfileDraft {
   alpn: string[];
   allowInsecure: boolean;
   remark: string;
+}
+
+export interface AmneziaProfileDraft {
+  id?: string;
+  name: string;
+  rawConfig: string;
 }

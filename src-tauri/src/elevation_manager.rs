@@ -23,7 +23,7 @@ pub fn pending_elevated_connect_profile() -> Option<String> {
     None
 }
 
-pub fn relaunch_as_administrator_for_tun(profile_id: &str) -> AppResult<()> {
+pub fn relaunch_as_administrator_for_profile(profile_id: &str) -> AppResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = profile_id;
@@ -69,7 +69,7 @@ pub fn relaunch_as_administrator_for_tun(profile_id: &str) -> AppResult<()> {
             .spawn()
             .map_err(|error| {
                 AppError::process(
-                    "Failed to request administrator relaunch for TUN mode.",
+                    "Failed to request administrator relaunch.",
                     Some(error.to_string()),
                 )
             })?;

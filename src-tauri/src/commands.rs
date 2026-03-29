@@ -1,6 +1,8 @@
 use tauri::{AppHandle, State};
 
 use crate::{
+    amnezia_parser::{parse_amnezia_config, parse_amnezia_uri},
+    connection_manager,
     error::AppError,
     latency_manager,
     models::{
@@ -13,7 +15,6 @@ use crate::{
     state::AppState,
     subscription_import,
     vless_parser::parse_vless_uri,
-    xray_manager,
 };
 
 #[tauri::command]
@@ -21,7 +22,7 @@ pub async fn bootstrap(app: AppHandle, state: State<'_, AppState>) -> Result<Boo
     let profiles = state.profile_store.list().await;
     let subscriptions = state.subscription_store.list().await;
     let settings = state.settings_store.get().await;
-    let connection_status = xray_manager::connection_status(state.inner()).await;
+    let connection_status = connection_manager::connection_status(state.inner()).await;
     let logs = state.log_manager.read_logs(LogReadMode::Preview)?;
     let about = get_about_info(app, state).await?;
 
@@ -51,9 +52,9 @@ pub async fn save_profile(
 
 #[tauri::command]
 pub async fn delete_profile(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    let connection_status = xray_manager::connection_status(state.inner()).await;
+    let connection_status = connection_manager::connection_status(state.inner()).await;
     if connection_status.active_profile_id.as_deref() == Some(id.as_str()) {
-        let _ = xray_manager::disconnect_profile(&app, state.inner()).await;
+        let _ = connection_manager::disconnect_profile(&app, state.inner()).await;
     }
     state.profile_store.delete(&id).await
 }
@@ -104,6 +105,25 @@ pub async fn import_profiles_json(
 }
 
 #[tauri::command]
+pub async fn import_amnezia_config(
+    state: State<'_, AppState>,
+    config: String,
+    name: Option<String>,
+) -> Result<Profile, AppError> {
+    let imported = parse_amnezia_config(&config, name)?;
+    state.profile_store.save(imported).await
+}
+
+#[tauri::command]
+pub async fn import_amnezia_uri(
+    state: State<'_, AppState>,
+    uri: String,
+) -> Result<Profile, AppError> {
+    let imported = parse_amnezia_uri(&uri)?;
+    state.profile_store.save(imported).await
+}
+
+#[tauri::command]
 pub async fn import_subscription(
     state: State<'_, AppState>,
     url: String,
@@ -151,7 +171,7 @@ pub async fn delete_subscription(
     state: State<'_, AppState>,
     subscription_id: String,
 ) -> Result<(), AppError> {
-    let connection_status = xray_manager::connection_status(state.inner()).await;
+    let connection_status = connection_manager::connection_status(state.inner()).await;
     let active_profile_id = connection_status.active_profile_id;
     let removed_profiles = state
         .profile_store
@@ -162,7 +182,7 @@ pub async fn delete_subscription(
             .iter()
             .any(|profile| profile.id == active_profile_id);
         if removed_active {
-            let _ = xray_manager::disconnect_profile(&app, state.inner()).await;
+            let _ = connection_manager::disconnect_profile(&app, state.inner()).await;
         }
     }
     let _ = state.subscription_store.delete(&subscription_id).await?;
@@ -180,7 +200,7 @@ pub async fn update_settings(
     patch: SettingsPatch,
 ) -> Result<Settings, AppError> {
     if patch.connection_mode.is_some() {
-        let status = xray_manager::connection_status(state.inner()).await;
+        let status = connection_manager::connection_status(state.inner()).await;
         if status.state != crate::models::ConnectionState::Disconnected {
             return Err(AppError::validation("Cannot change connection mode while active. Please disconnect first."));
         }
@@ -194,7 +214,7 @@ pub async fn connect(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<ConnectionStatusPayload, AppError> {
-    xray_manager::connect_profile(&app, state.inner(), profile_id).await
+    connection_manager::connect_profile(&app, state.inner(), profile_id).await
 }
 
 #[tauri::command]
@@ -202,14 +222,14 @@ pub async fn disconnect(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ConnectionStatusPayload, AppError> {
-    xray_manager::disconnect_profile(&app, state.inner()).await
+    connection_manager::disconnect_profile(&app, state.inner()).await
 }
 
 #[tauri::command]
 pub async fn connection_status(
     state: State<'_, AppState>,
 ) -> Result<ConnectionStatusPayload, AppError> {
-    Ok(xray_manager::connection_status(state.inner()).await)
+    Ok(connection_manager::connection_status(state.inner()).await)
 }
 
 #[tauri::command]
@@ -218,7 +238,7 @@ pub async fn test_profile_connection(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<TestConnectionResult, AppError> {
-    xray_manager::test_profile_connection(&app, state.inner(), profile_id).await
+    connection_manager::test_profile_connection(&app, state.inner(), profile_id).await
 }
 
 #[tauri::command]
@@ -261,7 +281,7 @@ pub async fn get_about_info(
     Ok(AboutInfo {
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         tauri_version: tauri::VERSION.to_string(),
-        xray_version: xray_manager::xray_version(&app).await,
+        xray_version: connection_manager::xray_version(&app).await,
         platform: "windows".to_string(),
     })
 }

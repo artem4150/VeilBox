@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{NetworkType, ProfileInput, ProfileSource, SecurityType},
+    models::{NetworkType, ProfileEngine, ProfileInput, ProfileSource, SecurityType},
     vless_parser::parse_vless_uri,
 };
 
@@ -39,7 +39,7 @@ pub async fn import_subscription_url(url: &str) -> AppResult<ImportedSubscriptio
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
-        .user_agent("VailBox/0.1")
+        .user_agent("VeilBox/0.1")
         .build()?;
 
     let source_label = parsed.host_str().map(|host| host.to_string());
@@ -575,6 +575,7 @@ fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Opti
     Some(ProfileInput {
         id: None,
         name: remarks,
+        engine: ProfileEngine::Xray,
         server_address,
         port,
         uuid,
@@ -598,6 +599,7 @@ fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Opti
         source: Some(ProfileSource::Subscription),
         source_label,
         subscription_id: None,
+        amnezia_config: None,
     })
 }
 

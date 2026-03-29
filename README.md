@@ -1,15 +1,15 @@
-# VailBox
+# VeilBox
 
-VailBox is a Windows desktop client built with Tauri and powered by Xray routing.  
+VeilBox is a Windows desktop client built with Tauri and powered by Xray routing.  
 It helps you quickly import VLESS profiles, choose the right route, and manage connections without an overloaded UI.
 
-![VailBox Dashboard](./.github/assets/dashboard.png)
+![VeilBox Dashboard](./.github/assets/dashboard.png)
 
 ## Screenshots
 
 | Logs | Settings |
 | --- | --- |
-| ![VailBox Logs](./.github/assets/logs.png) | ![VailBox Settings](./.github/assets/settings.png) |
+| ![VeilBox Logs](./.github/assets/logs.png) | ![VeilBox Settings](./.github/assets/settings.png) |
 
 ## Advantages
 
@@ -55,3 +55,10 @@ npm run tauri build
 ## Platform
 
 - Windows 10/11
+
+## Legal
+
+- [Privacy Policy](./PRIVACY.md)
+- [Terms of Use](./TERMS.md)
+- [Third-Party Notices](./THIRD_PARTY_NOTICES.md)
+- [Support](./SUPPORT.md)

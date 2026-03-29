@@ -163,7 +163,7 @@ pub fn best_effort_cleanup(
             .unwrap_or_else(|| {
                 server.contains("127.0.0.1:")
                     || auto_config_url.contains("system-proxy.pac")
-                    || auto_config_url.contains("VailBox")
+                    || auto_config_url.contains("VeilBox")
             });
 
         if looks_like_ours {

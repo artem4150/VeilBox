@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "VailBox",
+  "productName": "VeilBox",
   "version": "2.1.0",
   "identifier": "com.vailbox.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "VailBox",
+        "title": "VeilBox",
         "width": 720,
         "height": 600,
         "minWidth": 720,
@@ -39,7 +39,10 @@
       "bin/*"
     ],
     "windows": {
-      "digestAlgorithm": "sha256"
+      "digestAlgorithm": "sha256",
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      }
     }
   }
 }

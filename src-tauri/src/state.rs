@@ -14,7 +14,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::{
     error::{AppError, AppResult},
     log_manager::LogManager,
-    models::{ConnectionStatusPayload, LogLevel, LogSource, RuntimeSessionState},
+    models::{ConnectionStatusPayload, LogLevel, LogSource, ProfileEngine, RuntimeSessionState},
     profile_store::ProfileStore,
     settings_store::SettingsStore,
 };
@@ -29,8 +29,10 @@ pub struct AppPaths {
     pub app_log_file: PathBuf,
     pub connection_log_file: PathBuf,
     pub temp_config_file: PathBuf,
+    pub amnezia_config_file: PathBuf,
     pub proxy_pac_file: PathBuf,
     pub sidecar_path: PathBuf,
+    pub amnezia_sidecar_path: PathBuf,
 }
 
 impl AppPaths {
@@ -48,9 +50,17 @@ impl AppPaths {
         let workspace_sidecar_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bin")
             .join("xray.exe");
+        let workspace_amnezia_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bin")
+            .join("amneziawg.exe");
         let resource_sidecar_path = app
             .path()
             .resolve("bin/xray.exe", tauri::path::BaseDirectory::Resource)
+            .ok()
+            .filter(|path| path.exists());
+        let resource_amnezia_path = app
+            .path()
+            .resolve("bin/amneziawg.exe", tauri::path::BaseDirectory::Resource)
             .ok()
             .filter(|path| path.exists());
 
@@ -58,6 +68,11 @@ impl AppPaths {
             workspace_sidecar_path
         } else {
             resource_sidecar_path.unwrap_or(workspace_sidecar_path)
+        };
+        let amnezia_sidecar_path = if cfg!(debug_assertions) && workspace_amnezia_path.exists() {
+            workspace_amnezia_path
+        } else {
+            resource_amnezia_path.unwrap_or(workspace_amnezia_path)
         };
 
         Ok(Self {
@@ -69,8 +84,10 @@ impl AppPaths {
             app_log_file: logs_dir.join("app.jsonl"),
             connection_log_file: logs_dir.join("connection.jsonl"),
             temp_config_file: runtime_dir.join("xray-active.json"),
+            amnezia_config_file: runtime_dir.join("vailbox-awg.conf"),
             proxy_pac_file: runtime_dir.join("system-proxy.pac"),
             sidecar_path,
+            amnezia_sidecar_path,
         })
     }
 }
@@ -142,6 +159,7 @@ impl RuntimeStateStore {
 #[derive(Debug)]
 pub struct ManagedSession {
     pub id: u64,
+    pub engine: ProfileEngine,
     pub profile_id: String,
     pub connected_at: DateTime<Utc>,
     pub http_port: u16,

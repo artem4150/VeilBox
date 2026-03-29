@@ -19,7 +19,7 @@ use crate::{
     config_builder::build_xray_config,
     elevation_manager,
     error::{AppError, AppResult},
-    models::{ConnectionMode, ConnectionState, ConnectionStatusPayload, LogLevel, LogSource, Profile, TestConnectionResult},
+    models::{ConnectionMode, ConnectionState, ConnectionStatusPayload, LogLevel, LogSource, Profile, ProfileEngine, TestConnectionResult},
     proxy_manager_windows,
     state::{AppState, ManagedSession},
     tun_route_manager,
@@ -118,7 +118,7 @@ pub async fn cleanup_on_launch(app: &AppHandle) -> AppResult<()> {
             tauri::async_runtime::spawn(async move {
                 sleep(Duration::from_millis(650)).await;
                 let app_state = app_handle.state::<AppState>();
-                let _ = connect_profile(&app_handle, app_state.inner(), profile_id).await;
+                let _ = crate::connection_manager::connect_profile(&app_handle, app_state.inner(), profile_id).await;
             });
         }
     }
@@ -179,10 +179,10 @@ async fn start_session(
             crate::network_interface_manager::is_elevated(),
         )
     {
-        elevation_manager::relaunch_as_administrator_for_tun(&profile.id)?;
+        elevation_manager::relaunch_as_administrator_for_profile(&profile.id)?;
         app.exit(0);
         return Err(AppError::state(
-            "Relaunching VailBox as Administrator for TUN mode.",
+            "Relaunching VeilBox as Administrator for TUN mode.",
         ));
     }
 
@@ -349,6 +349,7 @@ async fn run_xray(
     let connected_at = Utc::now();
     let session = ManagedSession {
         id: session_id,
+        engine: ProfileEngine::Xray,
         profile_id: profile.id.clone(),
         connected_at,
         http_port,
@@ -700,7 +701,7 @@ fn ensure_tun_prerequisites(state: &AppState) -> AppResult<()> {
 
     if !crate::network_interface_manager::is_elevated() {
         return Err(AppError::validation(
-            "TUN mode requires administrator privileges. Please run VailBox as Administrator.",
+            "TUN mode requires administrator privileges. Please run VeilBox as Administrator.",
         ));
     }
 

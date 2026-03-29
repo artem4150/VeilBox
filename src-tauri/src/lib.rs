@@ -1,4 +1,7 @@
+mod amnezia_manager;
+mod amnezia_parser;
 mod commands;
+mod connection_manager;
 mod config_builder;
 mod elevation_manager;
 mod error;
@@ -114,14 +117,16 @@ pub fn run() {
                     .await;
             });
             tauri::async_runtime::block_on(async {
-                xray_manager::cleanup_on_launch(app.handle()).await
+                connection_manager::cleanup_on_launch(app.handle()).await
             })?;
             if let Some(profile_id) = elevation_manager::pending_elevated_connect_profile() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     let app_state = app_handle.state::<AppState>();
-                    let _ = xray_manager::connect_profile(&app_handle, app_state.inner(), profile_id).await;
+                    let _ =
+                        connection_manager::connect_profile(&app_handle, app_state.inner(), profile_id)
+                            .await;
                 });
             }
             Ok(())
@@ -145,6 +150,8 @@ pub fn run() {
             commands::duplicate_profile,
             commands::import_vless_uri,
             commands::import_profiles_json,
+            commands::import_amnezia_config,
+            commands::import_amnezia_uri,
             commands::import_subscription,
             commands::list_subscriptions,
             commands::refresh_subscription,
@@ -181,6 +188,9 @@ pub fn run() {
                         &settings_snapshot.tun_interface_name,
                     );
                 }
+                let _ = tauri::async_runtime::block_on(crate::amnezia_manager::cleanup_on_launch(
+                    state.inner(),
+                ));
                 let session = tauri::async_runtime::block_on(async {
                     state.connection.session.lock().await.take()
                 });

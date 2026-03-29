@@ -59,6 +59,7 @@ const dictionary: Dict = {
   profileEntity: { ru: '\u043f\u0440\u043e\u0444\u0438\u043b\u044c', en: 'profile' },
   importUri: { ru: '\u0418\u043c\u043f\u043e\u0440\u0442 \u0438\u0437 VLESS URI', en: 'Import from VLESS URI' },
   importJson: { ru: '\u0418\u043c\u043f\u043e\u0440\u0442 \u0438\u0437 JSON', en: 'Import from JSON' },
+  importAmnezia: { ru: '\u0418\u043c\u043f\u043e\u0440\u0442 Amnezia', en: 'Import Amnezia config' },
   importSubscription: { ru: '\u0418\u043c\u043f\u043e\u0440\u0442 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438', en: 'Import subscription' },
   importConfig: { ru: '\u0418\u043c\u043f\u043e\u0440\u0442', en: 'Import' },
   subscriptionAction: { ru: '\u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430', en: 'Subscription' },
@@ -80,7 +81,7 @@ const dictionary: Dict = {
   noProfilesTitle: { ru: '\u041f\u0440\u043e\u0444\u0438\u043b\u0435\u0439 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442', en: 'No profiles yet' },
   noProfilesBody: {
     ru: '\u0412\u0441\u0442\u0430\u0432\u044c VLESS \u0441\u0441\u044b\u043b\u043a\u0443 \u0447\u0435\u0440\u0435\u0437 Ctrl+V, \u0438\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u0443\u0439 JSON \u0438\u043b\u0438 \u0441\u043e\u0437\u0434\u0430\u0439 \u043f\u0440\u043e\u0444\u0438\u043b\u044c \u0432\u0440\u0443\u0447\u043d\u0443\u044e.',
-    en: 'Paste a VLESS URI with Ctrl+V, import JSON, or create a profile manually.',
+    en: 'Paste a VLESS URI, Amnezia config, or JSON with Ctrl+V, or create a profile manually.',
   },
   notSet: { ru: '\u041d\u0435 \u0437\u0430\u0434\u0430\u043d', en: 'Not set' },
   unavailable: { ru: '\u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e', en: 'Unavailable' },

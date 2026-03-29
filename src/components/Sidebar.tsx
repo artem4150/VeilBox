@@ -24,11 +24,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
       <div className="sidebar-brand">
         <div className="sidebar-brand-main">
           <div className="sidebar-logo">
-            <img src="/app-icon.png" alt="VailBox icon" className="sidebar-logo-image" />
+            <img src="/app-icon.png" alt="VeilBox icon" className="sidebar-logo-image" />
           </div>
           {!collapsed ? (
             <div>
-              <h1>VailBox</h1>
+              <h1>VeilBox</h1>
               <p>{t(settings.language, 'sidebarClient')}</p>
             </div>
           ) : null}

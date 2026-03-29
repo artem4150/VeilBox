@@ -2399,6 +2399,7 @@ html[data-theme='light'] .app-shell {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
 }
 
 .about-section-heading {
@@ -2433,6 +2434,7 @@ html[data-theme='light'] .app-shell {
   font-size: 1.02rem;
   font-weight: 600;
   line-height: 1.45;
+  word-break: break-word;
 }
 
 .logs-page-minimal .page-header {

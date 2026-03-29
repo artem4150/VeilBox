@@ -24,7 +24,7 @@ struct IpWhoIsResponse {
 pub async fn resolve_profile_countries(profiles: Vec<Profile>) -> Vec<ProfileCountry> {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
-        .user_agent("VailBox/0.1")
+        .user_agent("VeilBox/0.1")
         .build()
     {
         Ok(client) => client,

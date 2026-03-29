@@ -23,7 +23,17 @@ export function maskSecret(value: string | null, visible = 4, language: AppLangu
 }
 
 export function profileSubtitle(profile: Profile) {
+  if (profile.engine === 'amneziawg') {
+    return `${profile.serverAddress}:${profile.port} / AMNEZIAWG`;
+  }
   return `${profile.serverAddress}:${profile.port} / ${profile.networkType.toUpperCase()} / ${profile.securityType.toUpperCase()}`;
+}
+
+export function profileTransportLabel(profile: Profile) {
+  if (profile.engine === 'amneziawg') {
+    return 'AMNEZIAWG';
+  }
+  return `${profile.networkType.toUpperCase()}/${profile.securityType.toUpperCase()}`;
 }
 
 export function statusLabel(state: string, language: AppLanguage = 'ru') {

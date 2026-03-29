@@ -18,7 +18,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&connect, &disconnect, &show, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("VailBox")
+        .tooltip("VeilBox")
         .menu(&menu);
 
     if let Some(icon) = app.default_window_icon().cloned() {

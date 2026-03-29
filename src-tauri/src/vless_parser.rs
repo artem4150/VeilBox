@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{NetworkType, ProfileInput, SecurityType},
+    models::{NetworkType, ProfileEngine, ProfileInput, SecurityType},
 };
 
 pub fn parse_vless_uri(uri: &str) -> AppResult<ProfileInput> {
@@ -71,6 +71,7 @@ pub fn parse_vless_uri(uri: &str) -> AppResult<ProfileInput> {
     let input = ProfileInput {
         id: None,
         name,
+        engine: ProfileEngine::Xray,
         server_address: host.to_string(),
         port,
         uuid: uuid.to_string(),
@@ -137,6 +138,7 @@ pub fn parse_vless_uri(uri: &str) -> AppResult<ProfileInput> {
         source: None,
         source_label: None,
         subscription_id: None,
+        amnezia_config: None,
     };
 
     validate_imported_profile(&input)?;

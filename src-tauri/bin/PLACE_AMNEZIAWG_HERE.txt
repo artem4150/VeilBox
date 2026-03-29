@@ -1,0 +1,10 @@
+Place the official Windows AmneziaWG client binary here and name it:
+
+amneziawg.exe
+
+VeilBox uses it for:
+- /installtunnelservice <config>
+- /uninstalltunnelservice <tunnel-name>
+
+Current expected tunnel name:
+VeilBoxAwg

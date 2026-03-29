@@ -34,6 +34,10 @@ export const backend = {
   importVlessUri: (uri: string) => tauriInvoke<Profile>('import_vless_uri', { uri }),
   importProfilesJson: (json: string) =>
     tauriInvoke<Profile[]>('import_profiles_json', { json }),
+  importAmneziaConfig: (config: string, name?: string) =>
+    tauriInvoke<Profile>('import_amnezia_config', { config, name }),
+  importAmneziaUri: (uri: string) =>
+    tauriInvoke<Profile>('import_amnezia_uri', { uri }),
   importSubscription: (url: string) =>
     tauriInvoke<SubscriptionImportResult>('import_subscription', { url }),
   listSubscriptions: () => tauriInvoke<Subscription[]>('list_subscriptions'),

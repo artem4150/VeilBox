@@ -29,11 +29,45 @@ pub enum ProfileSource {
     Subscription,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ProfileEngine {
+    #[default]
+    Xray,
+    Amneziawg,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AmneziaParam {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AmneziaConfig {
+    pub raw_config: String,
+    pub interface_addresses: Vec<String>,
+    pub dns_servers: Vec<String>,
+    pub interface_private_key: String,
+    pub endpoint_host: String,
+    pub endpoint_port: u16,
+    pub peer_public_key: String,
+    pub allowed_ips: Vec<String>,
+    pub preshared_key: Option<String>,
+    pub persistent_keepalive: Option<u16>,
+    #[serde(default)]
+    pub advanced_params: Vec<AmneziaParam>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub engine: ProfileEngine,
     pub server_address: String,
     pub port: u16,
     pub uuid: String,
@@ -60,6 +94,8 @@ pub struct Profile {
     pub source_label: Option<String>,
     #[serde(default)]
     pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub amnezia_config: Option<AmneziaConfig>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -69,6 +105,8 @@ pub struct Profile {
 pub struct ProfileInput {
     pub id: Option<String>,
     pub name: String,
+    #[serde(default)]
+    pub engine: ProfileEngine,
     pub server_address: String,
     pub port: u16,
     pub uuid: String,
@@ -97,6 +135,8 @@ pub struct ProfileInput {
     pub source_label: Option<String>,
     #[serde(default)]
     pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub amnezia_config: Option<AmneziaConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
