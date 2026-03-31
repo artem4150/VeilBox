@@ -82,7 +82,6 @@ src-tauri/target/release/bundle/nsis/
 If the client is useful to you, you can support development using any of the wallets below.
 
 BTC
-
 bc1qkgxdznlnrmlfalkrq2lx8qpsmhnnnytkxmqszg
 
 ETH
