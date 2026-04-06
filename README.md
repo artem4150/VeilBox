@@ -81,17 +81,7 @@ src-tauri/target/release/bundle/nsis/
 ## Support VeilBox with crypto donations.
 If the client is useful to you, you can support development using any of the wallets below.
 
-BTC
-bc1qkgxdznlnrmlfalkrq2lx8qpsmhnnnytkxmqszg
-
-ETH
-0x39cC6d9Eb4EB6C28Eb7e79beE7522513E90c9Dea
-
-SOL 
-HkxNREefNqa86n3HruzYckzXEe4ASK6p7Q15LKSB8mmm
-
-POL
-0x39cC6d9Eb4EB6C28Eb7e79beE7522513E90c9Dea
+## https://nowpayments.io/donation/veilbox
 
 ## Legal
 
