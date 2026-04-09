@@ -78,10 +78,11 @@ src-tauri/target/release/bundle/nsis/
 - Windows 10
 - Windows 11
 
-## Support VeilBox with crypto donations.
+## Support VeilBox with donations.
 If the client is useful to you, you can support development using any of the wallets below.
 
-## https://nowpayments.io/donation/veilbox
+[![Support VeilBox](https://img.shields.io/badge/Support%20VeilBox-Donate-orange?style=for-the-badge)](https://dalink.to/artem4150)
+https://nowpayments.io/donation/veilbox
 
 ## Legal
 
