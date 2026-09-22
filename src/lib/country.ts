@@ -3,13 +3,13 @@ export function normalizeCountryCode(code?: string | null) {
   return normalized && normalized.length === 2 ? normalized : null;
 }
 
-export function countryFlagEmojiUrl(code?: string | null) {
+export function countryFlagAssetUrl(code?: string | null) {
   const normalized = normalizeCountryCode(code);
   if (!normalized) {
     return null;
   }
 
-  return `https://flagcdn.com/${normalized.toLowerCase()}.svg`;
+  return `${import.meta.env.BASE_URL}flags/${normalized.toLowerCase()}.svg`;
 }
 
 export function countryFlagFallback() {

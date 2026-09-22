@@ -39,7 +39,8 @@ impl SettingsStore {
     }
 
     pub async fn update(&self, patch: SettingsPatch) -> AppResult<Settings> {
-        let mut settings = self.settings.write().await;
+        let mut guard = self.settings.write().await;
+        let mut settings = guard.clone();
         if let Some(value) = patch.launch_at_startup {
             settings.launch_at_startup = value;
         }
@@ -48,6 +49,9 @@ impl SettingsStore {
         }
         if let Some(value) = patch.auto_reconnect {
             settings.auto_reconnect = value;
+        }
+        if let Some(value) = patch.balance_servers {
+            settings.balance_servers = value;
         }
         if let Some(value) = patch.theme {
             settings.theme = value;
@@ -91,14 +95,36 @@ impl SettingsStore {
         if let Some(value) = patch.split_tunnel_ips {
             settings.split_tunnel_ips = normalize_ip_entries(value)?;
         }
+        if let Some(value) = patch.split_tunnel_processes {
+            settings.split_tunnel_processes = normalize_process_entries(value)?;
+        }
         if let Some(value) = patch.last_selected_profile_id {
             settings.last_selected_profile_id = value;
         }
 
         let snapshot = settings.clone();
         self.persist(&snapshot).await?;
+        *guard = snapshot.clone();
         Ok(snapshot)
     }
+}
+
+fn normalize_process_entries(values: Vec<String>) -> AppResult<Vec<String>> {
+    let mut items = Vec::new();
+    for raw in values {
+        let entry = raw.trim().replace('\\', "/");
+        if entry.is_empty() { continue; }
+        if entry.contains(['\n', '\r', '"', '*']) || entry.ends_with('/') {
+            return Err(AppError::validation("Use an executable name or absolute .exe path for TUN process routing"));
+        }
+        if entry.contains('/') && !(entry.len() > 3 && entry.as_bytes()[1] == b':' && entry.as_bytes()[2] == b'/') {
+            return Err(AppError::validation("Process path must be an absolute Windows path"));
+        }
+        items.push(entry);
+    }
+    items.sort();
+    items.dedup();
+    Ok(items)
 }
 
 fn normalize_domain_entries(values: Vec<String>) -> AppResult<Vec<String>> {
@@ -114,6 +140,9 @@ fn normalize_domain_entries(values: Vec<String>) -> AppResult<Vec<String>> {
                 "Split tunnel domain entry contains whitespace: {}",
                 trimmed
             )));
+        }
+        if trimmed.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '`' | '<' | '>' | '\\')) {
+            return Err(AppError::validation("Split tunnel domain contains unsafe characters"));
         }
         items.push(trimmed.to_string());
     }

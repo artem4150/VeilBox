@@ -1,10 +1,11 @@
 use std::{
-    collections::HashMap,
-    net::{IpAddr, Ipv6Addr},
+    collections::{HashMap, HashSet},
+    net::IpAddr,
     time::Duration,
 };
 
 use serde::Deserialize;
+use tokio::{net::lookup_host, task::JoinSet, time::timeout};
 
 use crate::models::{Profile, ProfileCountry};
 
@@ -40,26 +41,33 @@ pub async fn resolve_profile_countries(profiles: Vec<Profile>) -> Vec<ProfileCou
         }
     };
 
+    let hosts: HashSet<String> = profiles.iter().map(|profile| profile.server_address.clone()).collect();
     let mut cache: HashMap<String, Option<CountryInfo>> = HashMap::new();
-    let mut result = Vec::with_capacity(profiles.len());
-
-    for profile in profiles {
-        let entry = if let Some(cached) = cache.get(&profile.server_address) {
-            cached.clone()
-        } else {
-            let resolved = lookup_country(&client, &profile.server_address).await;
-            cache.insert(profile.server_address.clone(), resolved.clone());
-            resolved
-        };
-
-        result.push(ProfileCountry {
-            profile_id: profile.id,
-            country_code: entry.as_ref().map(|item| item.code.clone()),
-            country_name: entry.map(|item| item.name),
+    let mut tasks = JoinSet::new();
+    for host in hosts {
+        if tasks.len() >= 8 {
+            if let Some(Ok((host, country))) = tasks.join_next().await {
+                cache.insert(host, country);
+            }
+        }
+        let client = client.clone();
+        tasks.spawn(async move {
+            let country = lookup_country(&client, &host).await;
+            (host, country)
         });
     }
+    while let Some(Ok((host, country))) = tasks.join_next().await {
+        cache.insert(host, country);
+    }
 
-    result
+    profiles.into_iter().map(|profile| {
+        let entry = cache.get(&profile.server_address).and_then(Option::as_ref);
+        ProfileCountry {
+            profile_id: profile.id,
+            country_code: entry.map(|item| item.code.clone()),
+            country_name: entry.map(|item| item.name.clone()),
+        }
+    }).collect()
 }
 
 async fn lookup_country(client: &reqwest::Client, host: &str) -> Option<CountryInfo> {
@@ -67,51 +75,36 @@ async fn lookup_country(client: &reqwest::Client, host: &str) -> Option<CountryI
         return None;
     }
 
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        let local_or_reserved = match ip {
-            IpAddr::V4(ipv4) => {
-                ipv4.is_loopback()
-                    || ipv4.is_private()
-                    || ipv4.is_link_local()
-                    || ipv4.is_multicast()
-            }
-            IpAddr::V6(ipv6) => {
-                ipv6.is_loopback()
-                    || ipv6.is_multicast()
-                    || ipv6.is_unspecified()
-                    || ipv6.is_unique_local()
-                    || ipv6.is_unicast_link_local()
-                    || ipv6.segments()[0] & 0xffc0 == Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0).segments()[0]
-            }
-        };
+    let addresses: Vec<IpAddr> = if let Ok(ip) = host.parse() {
+        vec![ip]
+    } else {
+        timeout(Duration::from_secs(4), lookup_host((host, 443)))
+            .await.ok()?.ok()?
+            .map(|socket| socket.ip())
+            .collect()
+    };
 
-        if local_or_reserved {
-            return None;
+    for ip in addresses.into_iter().filter(|ip| is_public_ip(*ip)).take(3) {
+        let response = match client.get(format!("https://ipwho.is/{ip}")).send().await {
+            Ok(response) if response.status().is_success() => response,
+            _ => continue,
+        };
+        let payload: IpWhoIsResponse = match response.json().await {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+        if !payload.success { continue; }
+        let code = payload.country_code?.trim().to_uppercase();
+        if code.len() == 2 {
+            return Some(CountryInfo { code, name: payload.country.unwrap_or_else(|| "Unknown".to_string()) });
         }
     }
+    None
+}
 
-    let response = client
-        .get(format!("https://ipwho.is/{}", host))
-        .send()
-        .await
-        .ok()?;
-
-    if !response.status().is_success() {
-        return None;
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_multicast() || ip.is_unspecified()),
+        IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_multicast() || ip.is_unspecified() || ip.is_unique_local() || ip.is_unicast_link_local()),
     }
-
-    let payload: IpWhoIsResponse = response.json().await.ok()?;
-    if !payload.success {
-        return None;
-    }
-
-    let code = payload.country_code?.trim().to_uppercase();
-    if code.len() != 2 {
-        return None;
-    }
-
-    Some(CountryInfo {
-        code,
-        name: payload.country.unwrap_or_else(|| "Unknown".to_string()),
-    })
 }

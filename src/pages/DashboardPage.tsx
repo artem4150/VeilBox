@@ -4,6 +4,7 @@ import {
   Link2,
   Plus,
   RefreshCw,
+  Route,
   Search,
   Trash2,
   Upload,
@@ -34,6 +35,9 @@ export function DashboardPage() {
   const subscriptions = useAppStore((state) => state.subscriptions);
   const selectedProfileId = useAppStore((state) => state.selectedProfileId);
   const language = useAppStore((state) => state.settings.language);
+  const balanceServers = useAppStore((state) => state.settings.balanceServers);
+  const connectionState = useAppStore((state) => state.connectionStatus.state);
+  const saveSettings = useAppStore((state) => state.saveSettings);
   const selectProfile = useAppStore((state) => state.selectProfile);
   const saveProfile = useAppStore((state) => state.saveProfile);
   const importProfile = useAppStore((state) => state.importProfile);
@@ -214,6 +218,19 @@ export function DashboardPage() {
             <RefreshCw size={18} className={pinging ? 'icon-spin' : undefined} />
             <span>{pinging ? t(language, 'pinging') : t(language, 'pingAll')}</span>
           </button>
+          <button
+            type="button"
+            className={`dashboard-toolbar-button dashboard-balance-button${balanceServers ? ' is-active' : ''}`}
+            aria-pressed={balanceServers}
+            disabled={connectionState === 'connected' || connectionState === 'connecting'}
+            title={connectionState === 'connected'
+              ? (language === 'ru' ? 'Для изменения сначала отключитесь' : 'Disconnect before changing balancing')
+              : (language === 'ru' ? 'Автоматический выбор доступного сервера с наименьшей задержкой' : 'Automatically select the available server with the lowest latency')}
+            onClick={() => void saveSettings({ balanceServers: !balanceServers })}
+          >
+            <Route size={18} />
+            <span>{language === 'ru' ? 'Балансировка' : 'Balancing'}: {balanceServers ? 'ON' : 'OFF'}</span>
+          </button>
         </div>
 
         <label className="dashboard-search">
@@ -339,7 +356,7 @@ export function DashboardPage() {
           </button>
           <button type="button" className="import-option-button" onClick={() => openModal('uri')}>
             <Upload size={18} />
-            <span>VLESS URI</span>
+            <span>VLESS / SS / Hysteria2 URI</span>
           </button>
           <button type="button" className="import-option-button" onClick={() => openModal('json')}>
             <FileJson size={18} />
@@ -368,8 +385,9 @@ export function DashboardPage() {
         {modalMode === 'uri' ? (
           <ImportProfileDialog
             onImport={async (uri) => {
-              await importProfile(uri);
-              closeModal();
+              const imported = await importProfile(uri);
+              if (imported) closeModal();
+              return imported;
             }}
           />
         ) : modalMode === 'json' ? (

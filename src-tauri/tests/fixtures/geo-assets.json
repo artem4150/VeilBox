@@ -1,0 +1,12 @@
+{
+  "log": { "loglevel": "warning" },
+  "outbounds": [
+    { "protocol": "freedom", "tag": "direct", "settings": {} }
+  ],
+  "routing": {
+    "rules": [
+      { "type": "field", "ip": ["geoip:ru"], "outboundTag": "direct" },
+      { "type": "field", "domain": ["geosite:telegram"], "outboundTag": "direct" }
+    ]
+  }
+}

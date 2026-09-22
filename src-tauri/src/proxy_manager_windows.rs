@@ -15,19 +15,14 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{ConnectionMode, Settings, SplitTunnelMode},
+    models::{ConnectionMode, PreviousSystemProxy, Settings, SplitTunnelMode},
 };
 
 const INTERNET_SETTINGS: &str =
     "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-#[derive(Debug, Clone)]
-pub struct ProxyState {
-    pub enabled: bool,
-    pub server: Option<String>,
-    pub auto_config_url: Option<String>,
-}
+pub type ProxyState = PreviousSystemProxy;
 
 pub fn set_proxy(port: u16, settings_snapshot: &Settings, pac_path: &Path) -> AppResult<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -57,14 +52,14 @@ pub fn set_proxy(port: u16, settings_snapshot: &Settings, pac_path: &Path) -> Ap
         let _ = settings.delete_value("AutoConfigURL");
         let _ = fs::remove_file(pac_path);
         settings
-            .set_value("ProxyEnable", &1u32)
-            .map_err(|error| AppError::proxy("Failed to enable system proxy", Some(error.to_string())))?;
-        settings
             .set_value("ProxyServer", &format!("127.0.0.1:{port}"))
             .map_err(|error| AppError::proxy("Failed to save proxy address", Some(error.to_string())))?;
         settings
             .set_value("ProxyOverride", &build_proxy_override(settings_snapshot)?)
             .map_err(|error| AppError::proxy("Failed to save proxy bypass rules", Some(error.to_string())))?;
+        settings
+            .set_value("ProxyEnable", &1u32)
+            .map_err(|error| AppError::proxy("Failed to enable system proxy", Some(error.to_string())))?;
     }
 
     refresh_internet_settings()
@@ -95,6 +90,36 @@ pub fn clear_proxy(pac_path: Option<&Path>) -> AppResult<()> {
     }
 
     refresh_internet_settings()
+}
+
+pub fn clear_owned_proxy(port: Option<u16>, pac_path: &Path) -> AppResult<bool> {
+    let state = get_proxy_state()?;
+    let owns_server = port.map(|p| state.enabled && state.server.as_deref() == Some(format!("127.0.0.1:{p}").as_str())).unwrap_or(false);
+    let owns_pac = state.auto_config_url.as_deref() == Some(pac_url_from_path(pac_path).as_str());
+    if owns_server || owns_pac {
+        clear_proxy(Some(pac_path))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub fn restore_owned_proxy(port: Option<u16>, pac_path: &Path, previous: Option<&ProxyState>) -> AppResult<bool> {
+    let Some(previous) = previous else { return clear_owned_proxy(port, pac_path); };
+    let state = get_proxy_state()?;
+    let owns_server = port.map(|p| state.enabled && state.server.as_deref() == Some(format!("127.0.0.1:{p}").as_str())).unwrap_or(false);
+    let owns_pac = state.auto_config_url.as_deref() == Some(pac_url_from_path(pac_path).as_str());
+    if !owns_server && !owns_pac { return Ok(false); }
+    let key = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(INTERNET_SETTINGS, winreg::enums::KEY_SET_VALUE)?;
+    // Disable the local proxy first, so a partial restoration cannot leave a dead endpoint enabled.
+    key.set_value("ProxyEnable", &0u32)?;
+    for (name, value) in [("ProxyServer", &previous.server), ("ProxyOverride", &previous.override_list), ("AutoConfigURL", &previous.auto_config_url)] {
+        if let Some(value) = value { key.set_value(name, value)?; }
+        else { let _ = key.delete_value(name); }
+    }
+    key.set_value("ProxyEnable", &(previous.enabled as u32))?;
+    let _ = fs::remove_file(pac_path);
+    refresh_internet_settings()?;
+    Ok(true)
 }
 
 pub fn capture_winhttp_dump() -> AppResult<String> {
@@ -132,6 +157,17 @@ pub fn restore_winhttp_proxy(previous_dump: Option<&str>) -> AppResult<()> {
     }
 }
 
+pub fn restore_owned_winhttp(previous: Option<&str>, port: Option<u16>, pac_path: &Path) -> AppResult<bool> {
+    let Some(previous) = previous else { return Ok(false); };
+    let current = capture_winhttp_dump()?;
+    let owns_port = port.map(|p| current.contains(&format!("127.0.0.1:{p}"))).unwrap_or(false);
+    if owns_port || current.contains(&pac_url_from_path(pac_path)) {
+        restore_winhttp_proxy(Some(previous))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 pub fn verify_proxy(port: u16) -> AppResult<bool> {
     let state = get_proxy_state()?;
     if state.enabled {
@@ -150,6 +186,8 @@ pub fn verify_proxy(port: u16) -> AppResult<bool> {
 pub fn best_effort_cleanup(
     known_proxy_string: Option<String>,
     previous_winhttp_dump: Option<String>,
+    pac_path: &Path,
+    previous_system_proxy: Option<&ProxyState>,
 ) -> AppResult<bool> {
     let mut cleaned = false;
     let state = get_proxy_state()?;
@@ -158,23 +196,22 @@ pub fn best_effort_cleanup(
     } else {
         let server = state.server.unwrap_or_default();
         let auto_config_url = state.auto_config_url.unwrap_or_default();
-        let looks_like_ours = known_proxy_string
-            .map(|known| server == known)
-            .unwrap_or_else(|| {
-                server.contains("127.0.0.1:")
-                    || auto_config_url.contains("system-proxy.pac")
-                    || auto_config_url.contains("VeilBox")
-            });
+        let looks_like_ours = known_proxy_string.as_deref()
+            .map(|known| state.enabled && server == known)
+            .unwrap_or(false)
+            || auto_config_url == pac_url_from_path(pac_path);
 
         if looks_like_ours {
-            clear_proxy(None)?;
+            restore_owned_proxy(known_proxy_string.as_deref().and_then(|value| value.rsplit(':').next()).and_then(|value| value.parse().ok()), pac_path, previous_system_proxy)?;
             cleaned = true;
         }
     }
 
-    if let Ok(dump) = capture_winhttp_dump() {
-        if dump.contains("127.0.0.1:") || dump.contains("AutoConfigUrl") {
-            restore_winhttp_proxy(previous_winhttp_dump.as_deref())?;
+    if let (Some(previous), Ok(dump)) = (previous_winhttp_dump.as_deref(), capture_winhttp_dump()) {
+        let our_winhttp = known_proxy_string.as_deref().map(|known| dump.contains(known)).unwrap_or(false)
+            || dump.contains(&pac_url_from_path(pac_path));
+        if our_winhttp && dump != previous {
+            restore_winhttp_proxy(Some(previous))?;
             cleaned = true;
         }
     }
@@ -195,10 +232,12 @@ pub fn get_proxy_state() -> AppResult<ProxyState> {
 
     let enabled = settings.get_value::<u32, _>("ProxyEnable").unwrap_or_default() == 1;
     let server = settings.get_value::<String, _>("ProxyServer").ok();
+    let override_list = settings.get_value::<String, _>("ProxyOverride").ok();
     let auto_config_url = settings.get_value::<String, _>("AutoConfigURL").ok();
     Ok(ProxyState {
         enabled,
         server,
+        override_list,
         auto_config_url,
     })
 }

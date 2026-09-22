@@ -68,7 +68,7 @@ function AppContent() {
         return;
       }
 
-      if (text.toLowerCase().startsWith('vless://')) {
+      if (/^(vless|ss|hy2|hysteria2):\/\//i.test(text)) {
         event.preventDefault();
         void importProfile(text);
         return;

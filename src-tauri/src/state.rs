@@ -14,7 +14,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::{
     error::{AppError, AppResult},
     log_manager::LogManager,
-    models::{ConnectionStatusPayload, LogLevel, LogSource, ProfileEngine, RuntimeSessionState},
+    models::{ConnectionStatusPayload, LogLevel, LogSource, PreviousSystemProxy, ProfileEngine, RuntimeSessionState},
     profile_store::ProfileStore,
     settings_store::SettingsStore,
 };
@@ -143,6 +143,17 @@ impl RuntimeStateStore {
             state.last_socks_proxy_port = Some(socks_port);
             state.last_proxy_string = proxy_string;
             state.last_winhttp_dump = winhttp_dump;
+        }
+        self.persist().await
+    }
+
+    pub async fn stage_proxy(&self, port: u16, previous: PreviousSystemProxy, winhttp: Option<String>) -> AppResult<()> {
+        {
+            let mut state = self.inner.write().await;
+            state.last_http_proxy_port = Some(port);
+            state.last_proxy_string = Some(format!("127.0.0.1:{port}"));
+            state.previous_system_proxy = Some(previous);
+            state.last_winhttp_dump = winhttp;
         }
         self.persist().await
     }

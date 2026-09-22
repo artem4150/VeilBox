@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{ConnectionMode, NetworkType, Profile, SecurityType, Settings, SplitTunnelMode},
+    models::{ConnectionMode, NetworkType, Profile, ProxyProtocol, SecurityType, Settings, SplitTunnelMode},
 };
 
 const TUN_MTU: u16 = 1500;
@@ -62,6 +62,8 @@ struct RoutingRule {
     domain: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     port: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process: Option<Vec<String>>,
     outbound_tag: String,
 }
 
@@ -95,7 +97,7 @@ struct Outbound {
     protocol: String,
     settings: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    stream_settings: Option<StreamSettings>,
+    stream_settings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -255,34 +257,18 @@ pub fn build_xray_config(
             protocol: "tun".to_string(),
             settings: serde_json::json!({
               "name": settings.tun_interface_name,
-              "address": tun_addresses,
+              "gateway": tun_addresses,
+              "dns": DEFAULT_DNS_SERVERS,
               "mtu": TUN_MTU,
-              "stack": "system",
-              "autoRoute": true,
-              "strictRoute": true,
-              "sniff": true,
+              "autoSystemRoutingTable": if settings.tun_disable_ipv6 { vec!["0.0.0.0/0"] } else { vec!["0.0.0.0/0", "::/0"] },
+              "autoOutboundsInterface": settings.tun_outbound_interface.as_deref().unwrap_or("auto"),
             }),
             sniffing: Some(default_sniffing(true)),
         });
     }
 
     let outbound_sockopt = outbound_sockopt(settings);
-    let proxy_outbound = Outbound {
-        tag: "proxy".to_string(),
-        protocol: "vless".to_string(),
-        settings: serde_json::to_value(VlessSettings {
-            vnext: vec![Vnext {
-                address: profile.server_address.clone(),
-                port: profile.port,
-                users: vec![VlessUser {
-                    id: profile.uuid.clone(),
-                    encryption: "none",
-                    flow: profile.flow.clone(),
-                }],
-            }],
-        })?,
-        stream_settings: Some(build_stream_settings(profile, outbound_sockopt.clone())?),
-    };
+    let proxy_outbound = build_proxy_outbound(profile, outbound_sockopt.clone())?;
 
     let outbounds = vec![
         proxy_outbound,
@@ -290,7 +276,7 @@ pub fn build_xray_config(
             tag: "direct".to_string(),
             protocol: "freedom".to_string(),
             settings: serde_json::json!({}),
-            stream_settings: Some(StreamSettings {
+            stream_settings: Some(serde_json::to_value(StreamSettings {
                 network: None,
                 security: None,
                 sockopt: outbound_sockopt.clone(),
@@ -301,13 +287,13 @@ pub fn build_xray_config(
                 xhttp_settings: None,
                 httpupgrade_settings: None,
                 kcp_settings: None,
-            }),
+            })?),
         },
         Outbound {
             tag: "dns-out".to_string(),
             protocol: "dns".to_string(),
             settings: serde_json::json!({}),
-            stream_settings: Some(StreamSettings {
+            stream_settings: Some(serde_json::to_value(StreamSettings {
                 network: None,
                 security: None,
                 sockopt: outbound_sockopt.clone(),
@@ -318,7 +304,7 @@ pub fn build_xray_config(
                 xhttp_settings: None,
                 httpupgrade_settings: None,
                 kcp_settings: None,
-            }),
+            })?),
         },
     ];
 
@@ -357,6 +343,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
             ip: Some(vec![profile.server_address.clone()]),
             domain: None,
             port: None,
+            process: None,
             outbound_tag: "direct".to_string(),
         });
     } else {
@@ -366,6 +353,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
             ip: None,
             domain: Some(vec![format!("full:{}", profile.server_address)]),
             port: None,
+            process: None,
             outbound_tag: "direct".to_string(),
         });
     }
@@ -376,6 +364,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
         ip: Some(local_bypass_ips(settings)),
         domain: None,
         port: None,
+        process: None,
         outbound_tag: "direct".to_string(),
     });
 
@@ -385,6 +374,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
         ip: None,
         domain: None,
         port: Some("53".to_string()),
+        process: None,
         outbound_tag: "dns-out".to_string(),
     });
 
@@ -393,6 +383,9 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
             rules.push(rule_for_inbounds(vec!["tun-in"], "proxy"));
         }
         SplitTunnelMode::BypassListed => {
+            if !settings.split_tunnel_processes.is_empty() {
+                rules.push(process_rule(settings, "direct"));
+            }
             if !settings.split_tunnel_domains.is_empty() {
                 rules.push(RoutingRule {
                     kind: "field",
@@ -400,6 +393,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
                     ip: None,
                     domain: Some(normalize_domain_rules(&settings.split_tunnel_domains)),
                     port: None,
+                    process: None,
                     outbound_tag: "direct".to_string(),
                 });
             }
@@ -410,12 +404,16 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
                     ip: Some(settings.split_tunnel_ips.clone()),
                     domain: None,
                     port: None,
+                    process: None,
                     outbound_tag: "direct".to_string(),
                 });
             }
             rules.push(rule_for_inbounds(vec!["tun-in"], "proxy"));
         }
         SplitTunnelMode::ProxyListed => {
+            if !settings.split_tunnel_processes.is_empty() {
+                rules.push(process_rule(settings, "proxy"));
+            }
             if !settings.split_tunnel_domains.is_empty() {
                 rules.push(RoutingRule {
                     kind: "field",
@@ -423,6 +421,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
                     ip: None,
                     domain: Some(normalize_domain_rules(&settings.split_tunnel_domains)),
                     port: None,
+                    process: None,
                     outbound_tag: "proxy".to_string(),
                 });
             }
@@ -433,6 +432,7 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
                     ip: Some(settings.split_tunnel_ips.clone()),
                     domain: None,
                     port: None,
+                    process: None,
                     outbound_tag: "proxy".to_string(),
                 });
             }
@@ -443,9 +443,148 @@ fn build_tun_routing(profile: &Profile, settings: &Settings) -> RoutingSection {
     rules.push(rule_for_inbounds(vec!["http-in", "socks-in"], "proxy"));
 
     RoutingSection {
-        domain_strategy: "IPIfNonMatch",
+        domain_strategy: "IPOnDemand",
         rules,
     }
+}
+
+pub fn build_balanced_xray_config(
+    primary: &Profile,
+    candidates: &[Profile],
+    settings: &Settings,
+    socks_port: u16,
+    http_port: u16,
+    probe_port: u16,
+    api_port: u16,
+) -> AppResult<String> {
+    let mut config: serde_json::Value = serde_json::from_str(&build_xray_config(primary, settings, socks_port, http_port)?)?;
+    let mut count = 0usize;
+    for candidate in std::iter::once(primary).chain(candidates.iter().filter(|p| p.id != primary.id)) {
+        if !matches!(candidate.engine, crate::models::ProfileEngine::Xray) { continue; }
+        // Reuse exactly the same outbound validation as a normal profile connection.
+        let other_config = match build_xray_config(candidate, settings, socks_port, http_port) {
+            Ok(config) => config,
+            Err(_) if candidate.id != primary.id => continue,
+            Err(error) => return Err(error),
+        };
+        let other: serde_json::Value = serde_json::from_str(&other_config)?;
+        let mut outbound = other["outbounds"][0].clone();
+        outbound["tag"] = format!("balanced-{count}").into();
+        config["outbounds"].as_array_mut().unwrap().push(outbound);
+        count += 1;
+    }
+    if count < 2 { return Ok(serde_json::to_string_pretty(&config)?); }
+    config["inbounds"].as_array_mut().unwrap().push(serde_json::json!({
+        "tag": "speed-probe-in", "listen": "127.0.0.1", "port": probe_port,
+        "protocol": "http", "settings": {}
+    }));
+    config["api"] = serde_json::json!({
+        "tag": "speed-api", "listen": format!("127.0.0.1:{api_port}"),
+        "services": ["RoutingService"]
+    });
+    for rule in config["routing"]["rules"].as_array_mut().unwrap() {
+        if rule["outboundTag"] == "proxy" {
+            rule.as_object_mut().unwrap().remove("outboundTag");
+            rule["balancerTag"] = "best-server".into();
+        }
+    }
+    // Authentication/session traffic should keep one VPN egress IP even while
+    // generic traffic is rebalanced. Only apply this in full-tunnel routing;
+    // explicit split-tunnel rules must retain the user's chosen behavior.
+    if matches!(settings.split_tunnel_mode, SplitTunnelMode::Disabled) {
+        let inbound_tags = if matches!(settings.connection_mode, ConnectionMode::Tun) {
+            vec!["tun-in", "http-in", "socks-in"]
+        } else {
+            vec!["http-in", "socks-in"]
+        };
+        config["routing"]["rules"].as_array_mut().unwrap().insert(0, serde_json::json!({
+            "type": "field",
+            "inboundTag": inbound_tags,
+            "domain": [
+                "domain:chatgpt.com",
+                "domain:openai.com",
+                "domain:oaistatic.com",
+                "domain:oaiusercontent.com"
+            ],
+            "outboundTag": "proxy"
+        }));
+    }
+    config["routing"]["rules"].as_array_mut().unwrap().insert(0, serde_json::json!({
+        "type": "field", "inboundTag": ["speed-probe-in"],
+        "balancerTag": "speed-probe"
+    }));
+    config["routing"]["balancers"] = serde_json::json!([
+        {
+            "tag": "best-server", "selector": ["balanced-"],
+            "fallbackTag": "proxy", "strategy": { "type": "leastPing" }
+        },
+        {
+            "tag": "speed-probe", "selector": ["balanced-"],
+            "strategy": { "type": "roundRobin" }
+        }
+    ]);
+    config["observatory"] = serde_json::json!({
+        "subjectSelector": ["balanced-"],
+        "probeUrl": "https://www.gstatic.com/generate_204",
+        "probeInterval": "10s",
+        "enableConcurrency": true
+    });
+    Ok(serde_json::to_string_pretty(&config)?)
+}
+
+fn build_proxy_outbound(profile: &Profile, sockopt: Option<SockoptSettings>) -> AppResult<Outbound> {
+    let tag = "proxy".to_string();
+    match profile.protocol {
+        ProxyProtocol::Vless => Ok(Outbound {
+            tag,
+            protocol: "vless".to_string(),
+            settings: serde_json::to_value(VlessSettings {
+                vnext: vec![Vnext {
+                    address: profile.server_address.clone(), port: profile.port,
+                    users: vec![VlessUser { id: profile.uuid.clone(), encryption: "none", flow: profile.flow.clone() }],
+                }],
+            })?,
+            stream_settings: Some(serde_json::to_value(build_stream_settings(profile, sockopt)?)?),
+        }),
+        ProxyProtocol::Shadowsocks => Ok(Outbound {
+            tag,
+            protocol: "shadowsocks".to_string(),
+            settings: serde_json::json!({
+                "address": profile.server_address, "port": profile.port,
+                "method": required_profile_value(&profile.method, "Shadowsocks method")?,
+                "password": required_profile_value(&profile.password, "Shadowsocks password")?,
+            }),
+            stream_settings: sockopt.map(|value| serde_json::json!({ "sockopt": value })),
+        }),
+        ProxyProtocol::Hysteria2 => {
+            if !matches!(profile.security_type, SecurityType::Tls) {
+                return Err(AppError::validation("Hysteria2 requires TLS"));
+            }
+            Ok(Outbound {
+                tag,
+                protocol: "hysteria".to_string(),
+                settings: serde_json::json!({ "version": 2, "address": profile.server_address, "port": profile.port }),
+                stream_settings: Some(serde_json::json!({
+                    "method": "hysteria", "security": "tls",
+                    "hysteriaSettings": { "version": 2, "auth": required_profile_value(&profile.password, "Hysteria2 auth")? },
+                    "tlsSettings": {
+                        "serverName": profile.sni.as_deref().unwrap_or(&profile.server_address),
+                        "allowInsecure": profile.allow_insecure,
+                        "alpn": profile.alpn,
+                    },
+                    "sockopt": sockopt,
+                    "finalmask": profile.obfs_password.as_ref().map(|password| serde_json::json!({
+                        "udp": [{ "type": "salamander", "settings": { "password": password } }]
+                    })),
+                })),
+            })
+        }
+    }
+}
+
+fn required_profile_value<'a>(value: &'a Option<String>, label: &str) -> AppResult<&'a str> {
+    value.as_deref().filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::validation(format!("{label} is required")))
 }
 
 fn build_system_proxy_routing() -> RoutingSection {
@@ -458,6 +597,7 @@ fn build_system_proxy_routing() -> RoutingSection {
                 ip: None,
                 domain: None,
                 port: Some("53".to_string()),
+                process: None,
                 outbound_tag: "dns-out".to_string(),
             },
             rule_for_inbounds(vec!["http-in", "socks-in"], "proxy"),
@@ -497,6 +637,19 @@ fn rule_for_inbounds(inbounds: Vec<&str>, outbound_tag: &str) -> RoutingRule {
         ip: None,
         domain: None,
         port: None,
+        process: None,
+        outbound_tag: outbound_tag.to_string(),
+    }
+}
+
+fn process_rule(settings: &Settings, outbound_tag: &str) -> RoutingRule {
+    RoutingRule {
+        kind: "field",
+        inbound_tag: Some(vec!["tun-in".to_string()]),
+        ip: None,
+        domain: None,
+        port: None,
+        process: Some(settings.split_tunnel_processes.clone()),
         outbound_tag: outbound_tag.to_string(),
     }
 }
@@ -710,5 +863,83 @@ fn reality_settings_for(
             spider_x: profile.spider_x.clone().unwrap_or_else(|| "/".to_string()),
         })),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ProfileEngine, ProfileSource};
+
+    #[test]
+    fn tun_geo_and_process_rules_are_accepted_by_bundled_xray() {
+        let now = chrono::Utc::now();
+        let profile = Profile {
+            id: "test".into(), name: "test".into(), engine: ProfileEngine::Xray,
+            protocol: ProxyProtocol::Vless, password: None, method: None, obfs_password: None,
+            server_address: "example.com".into(), port: 443,
+            uuid: "11111111-1111-4111-8111-111111111111".into(),
+            network_type: NetworkType::Tcp, security_type: SecurityType::Tls,
+            flow: None, sni: Some("example.com".into()), fingerprint: None,
+            public_key: None, short_id: None, spider_x: None, path: None,
+            host_header: None, service_name: None, xhttp_mode: None,
+            transport_header_type: None, seed: None, alpn: vec![],
+            allow_insecure: false, remark: None, source: ProfileSource::Manual,
+            source_label: None, subscription_id: None, amnezia_config: None,
+            created_at: now, updated_at: now,
+        };
+        let mut settings = Settings::default();
+        settings.connection_mode = ConnectionMode::Tun;
+        settings.split_tunnel_mode = SplitTunnelMode::ProxyListed;
+        settings.split_tunnel_processes = vec!["telegram.exe".into()];
+        settings.split_tunnel_ips = vec!["geoip:ru".into()];
+        settings.split_tunnel_domains = vec!["geosite:telegram".into()];
+        let config = build_xray_config(&profile, &settings, 19340, 19341).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(parsed["inbounds"][2]["settings"]["autoOutboundsInterface"], "auto");
+        assert_eq!(parsed["routing"]["rules"][3]["process"][0], "telegram.exe");
+
+        let binary = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/xray.exe");
+        if binary.exists() {
+            let path = std::env::temp_dir().join(format!("veilbox-config-test-{}.json", std::process::id()));
+            let mut alternate = profile.clone();
+            alternate.id = "alternate".into();
+            let balanced = build_balanced_xray_config(&profile, &[alternate.clone()], &settings, 19340, 19341, 19342, 19343).unwrap();
+            let balanced_split: serde_json::Value = serde_json::from_str(&balanced).unwrap();
+            assert!(!balanced_split["routing"]["rules"].as_array().unwrap().iter().any(|rule| {
+                rule["domain"].as_array().is_some_and(|domains| domains.iter().any(|domain| domain == "domain:chatgpt.com"))
+            }));
+            let balanced_full = build_balanced_xray_config(&profile, &[alternate], &Settings::default(), 19340, 19341, 19342, 19343).unwrap();
+            let balanced_full_json: serde_json::Value = serde_json::from_str(&balanced_full).unwrap();
+            assert_eq!(balanced_full_json["routing"]["rules"][0]["balancerTag"], "speed-probe");
+            assert_eq!(balanced_full_json["routing"]["rules"][1]["outboundTag"], "proxy");
+            assert_eq!(balanced_full_json["routing"]["rules"][1]["domain"][0], "domain:chatgpt.com");
+            assert!(balanced_full_json["routing"]["rules"].as_array().unwrap().iter().any(|rule| rule["balancerTag"] == "best-server"));
+            assert_eq!(balanced_full_json["api"]["listen"], "127.0.0.1:19343");
+            let mut shadowsocks = profile.clone();
+            shadowsocks.protocol = ProxyProtocol::Shadowsocks;
+            shadowsocks.uuid.clear();
+            shadowsocks.method = Some("aes-256-gcm".into());
+            shadowsocks.password = Some("secret".into());
+            let mut hysteria = profile.clone();
+            hysteria.protocol = ProxyProtocol::Hysteria2;
+            hysteria.uuid.clear();
+            hysteria.password = Some("secret".into());
+            hysteria.obfs_password = Some("obfs-secret".into());
+            let mut hysteria_plain = hysteria.clone();
+            hysteria_plain.obfs_password = None;
+            for candidate in [
+                config, balanced, balanced_full,
+                build_xray_config(&shadowsocks, &settings, 19340, 19341).unwrap(),
+                build_xray_config(&hysteria, &settings, 19340, 19341).unwrap(),
+                build_xray_config(&hysteria_plain, &settings, 19340, 19341).unwrap(),
+            ] {
+                std::fs::write(&path, candidate).unwrap();
+                let output = std::process::Command::new(&binary).args(["run", "-test", "-c"])
+                    .arg(&path).current_dir(path.parent().unwrap()).output().unwrap();
+                assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            }
+            let _ = std::fs::remove_file(path);
+        }
     }
 }

@@ -40,7 +40,7 @@ interface AppStore {
   saveProfile: (profile: Partial<Profile>) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   duplicateProfile: (id: string) => Promise<void>;
-  importProfile: (uri: string) => Promise<void>;
+  importProfile: (uri: string) => Promise<boolean>;
   importProfilesJson: (json: string) => Promise<void>;
   importAmneziaConfig: (config: string, name?: string) => Promise<void>;
   importAmneziaUri: (uri: string) => Promise<void>;
@@ -72,6 +72,7 @@ const defaultSettings: Settings = {
   launchAtStartup: false,
   minimizeToTray: true,
   autoReconnect: true,
+  balanceServers: false,
   theme: 'light',
   language: 'en',
   debugLogging: false,
@@ -82,6 +83,7 @@ const defaultSettings: Settings = {
   splitTunnelMode: 'disabled',
   splitTunnelDomains: [],
   splitTunnelIps: [],
+  splitTunnelProcesses: [],
   lastSelectedProfileId: null,
 };
 
@@ -337,6 +339,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         message: `${profile.name} успешно разобран.`,
         tone: 'success',
       });
+      return true;
     } catch (error) {
       const payload = mapError(error);
       get().pushToast({
@@ -344,6 +347,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         message: payload.message,
         tone: 'error',
       });
+      return false;
     }
   },
 

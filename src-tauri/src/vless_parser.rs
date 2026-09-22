@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{NetworkType, ProfileEngine, ProfileInput, SecurityType},
+    models::{NetworkType, ProfileEngine, ProfileInput, ProxyProtocol, SecurityType},
 };
 
 pub fn parse_vless_uri(uri: &str) -> AppResult<ProfileInput> {
@@ -72,6 +72,10 @@ pub fn parse_vless_uri(uri: &str) -> AppResult<ProfileInput> {
         id: None,
         name,
         engine: ProfileEngine::Xray,
+        protocol: ProxyProtocol::Vless,
+        password: None,
+        method: None,
+        obfs_password: None,
         server_address: host.to_string(),
         port,
         uuid: uuid.to_string(),

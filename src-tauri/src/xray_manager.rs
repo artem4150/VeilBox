@@ -16,11 +16,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
 use crate::{
-    config_builder::build_xray_config,
+    config_builder::{build_balanced_xray_config, build_xray_config},
     elevation_manager,
     error::{AppError, AppResult},
     models::{ConnectionMode, ConnectionState, ConnectionStatusPayload, LogLevel, LogSource, Profile, ProfileEngine, TestConnectionResult},
     proxy_manager_windows,
+    speed_balancer,
     state::{AppState, ManagedSession},
     tun_route_manager,
 };
@@ -73,7 +74,7 @@ pub async fn test_profile_connection(
     Ok(TestConnectionResult {
         profile_id,
         success: true,
-        message: format!("{} passed local Xray startup validation.", profile.name),
+        message: format!("{} passed local Xray configuration/startup validation (not a remote connectivity test).", profile.name),
         duration_ms: Some(started.elapsed().as_millis()),
     })
 }
@@ -85,6 +86,8 @@ pub async fn cleanup_on_launch(app: &AppHandle) -> AppResult<()> {
     let cleaned = proxy_manager_windows::best_effort_cleanup(
         runtime_snapshot.last_proxy_string.clone(),
         runtime_snapshot.last_winhttp_dump.clone(),
+        &state.paths.proxy_pac_file,
+        runtime_snapshot.previous_system_proxy.as_ref(),
     )?;
     if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
         let _ = tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
@@ -206,10 +209,11 @@ async fn start_session(
     match startup {
         Ok(status) => Ok(status),
         Err(error) => {
-            let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
-            let _ = state.runtime_state.clear().await;
+            if state.runtime_state.snapshot().await.previous_system_proxy.is_none() {
+                let _ = state.runtime_state.clear().await;
+            }
             let _ = tokio::fs::remove_file(&state.paths.temp_config_file).await;
-            {
+            if restart_count.is_none() {
                 let mut desired = state.connection.desired_profile_id.write().await;
                 *desired = None;
             }
@@ -262,8 +266,27 @@ async fn run_xray(
     }
 
     let (socks_port, http_port) = pick_two_distinct_ports()?;
+    let speed_ports = if settings.balance_servers {
+        Some(pick_two_ports_distinct_from(socks_port, http_port)?)
+    } else {
+        None
+    };
 
-    let config = build_xray_config(profile, &settings, socks_port, http_port)?;
+    let config = if settings.balance_servers {
+        let profiles = state.profile_store.list().await;
+        let (probe_port, api_port) = speed_ports.unwrap();
+        build_balanced_xray_config(profile, &profiles, &settings, socks_port, http_port, probe_port, api_port)?
+    } else {
+        build_xray_config(profile, &settings, socks_port, http_port)?
+    };
+    let speed_tags: Vec<String> = serde_json::from_str::<serde_json::Value>(&config)?["outbounds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|outbound| outbound["tag"].as_str())
+        .filter(|tag| tag.starts_with("balanced-"))
+        .map(str::to_string)
+        .collect();
     tokio::fs::write(&state.paths.temp_config_file, config).await?;
 
     let mut command = Command::new(&state.paths.sidecar_path);
@@ -312,22 +335,30 @@ async fn run_xray(
         proxy_manager_windows::capture_winhttp_dump().ok()
     };
 
+    if !tun_mode {
+        let previous = proxy_manager_windows::get_proxy_state()?;
+        if let Err(error) = state.runtime_state.stage_proxy(http_port, previous, previous_winhttp_dump.clone()).await {
+            terminate_child(&child).await;
+            return Err(error);
+        }
+    }
+
     if tun_mode {
-        let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
-        tun_route_manager::wait_for_interface(&settings.tun_interface_name, 8_000)?;
-        tun_route_manager::enable_full_tunnel(&settings.tun_interface_name)?;
+        let _ = proxy_manager_windows::clear_owned_proxy(None, &state.paths.proxy_pac_file);
+        // Xray owns the TUN routes and removes them when the core stops.
     } else {
         if let Err(error) =
             proxy_manager_windows::set_proxy(http_port, &settings, &state.paths.proxy_pac_file)
         {
+            let snapshot = state.runtime_state.snapshot().await;
+            let _ = proxy_manager_windows::restore_owned_proxy(Some(http_port), &state.paths.proxy_pac_file, snapshot.previous_system_proxy.as_ref());
             terminate_child(&child).await;
             return Err(error);
         }
-        if let Err(error) = proxy_manager_windows::apply_winhttp_proxy(
-            http_port,
-            &settings,
-            &state.paths.proxy_pac_file,
-        ) {
+        if previous_winhttp_dump.is_some() {
+          if let Err(error) = proxy_manager_windows::apply_winhttp_proxy(
+              http_port, &settings, &state.paths.proxy_pac_file,
+          ) {
             let _ = state
                 .log_if_enabled(
                     LogSource::Connection,
@@ -335,8 +366,11 @@ async fn run_xray(
                     format!("Unable to apply WinHTTP proxy compatibility layer: {}", error.message),
                 )
                 .await;
+          }
         }
-        if !proxy_manager_windows::verify_proxy(http_port)? {
+        if !proxy_manager_windows::verify_proxy(http_port).unwrap_or(false) {
+            let snapshot = state.runtime_state.snapshot().await;
+            let _ = proxy_manager_windows::restore_owned_proxy(Some(http_port), &state.paths.proxy_pac_file, snapshot.previous_system_proxy.as_ref());
             terminate_child(&child).await;
             return Err(AppError::proxy(
                 "System proxy verification failed after enabling the proxy.",
@@ -368,7 +402,7 @@ async fn run_xray(
     } else {
         Some(format!("127.0.0.1:{}", http_port))
     };
-    state
+    if let Err(error) = state
         .runtime_state
         .mark_connected(
             profile.id.clone(),
@@ -377,7 +411,10 @@ async fn run_xray(
             proxy_string,
             previous_winhttp_dump,
         )
-        .await?;
+        .await {
+        let _ = disconnect_locked(app, state).await;
+        return Err(error);
+    }
 
     let connected_status = ConnectionStatusPayload {
         state: ConnectionState::Connected,
@@ -392,7 +429,10 @@ async fn run_xray(
         local_socks_proxy_port: Some(socks_port),
         restart_count,
     };
-    set_status(app, state, connected_status.clone()).await?;
+    if let Err(error) = set_status(app, state, connected_status.clone()).await {
+        let _ = disconnect_locked(app, state).await;
+        return Err(error);
+    }
 
     let _ = state
         .log_if_enabled(
@@ -416,7 +456,11 @@ async fn run_xray(
         )
         .await;
 
-    spawn_session_monitor(app.clone(), session_id, profile.id.clone(), stop_requested, child);
+    spawn_session_monitor(app.clone(), session_id, profile.id.clone(), stop_requested.clone(), child);
+    if speed_tags.len() >= 2 {
+        let (probe_port, api_port) = speed_ports.unwrap();
+        speed_balancer::start(app.clone(), state.paths.sidecar_path.clone(), stop_requested, api_port, probe_port, speed_tags);
+    }
 
     Ok(connected_status)
 }
@@ -435,17 +479,17 @@ async fn disconnect_locked(app: &AppHandle, state: &AppState) -> AppResult<Conne
     let mut proxy_error = None;
     let runtime_snapshot = state.runtime_state.snapshot().await;
 
-    let settings_snapshot = state.settings_store.get().await;
-
-    if let Err(error) = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file)) {
+    if let Err(error) = proxy_manager_windows::restore_owned_proxy(
+        runtime_snapshot.last_http_proxy_port,
+        &state.paths.proxy_pac_file,
+        runtime_snapshot.previous_system_proxy.as_ref(),
+    ) {
         proxy_error = Some(error);
     }
-    if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
-        let _ = tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
-    }
-    if let Err(error) =
-        proxy_manager_windows::restore_winhttp_proxy(runtime_snapshot.last_winhttp_dump.as_deref())
     {
+      if let Err(error) = proxy_manager_windows::restore_owned_winhttp(
+          runtime_snapshot.last_winhttp_dump.as_deref(), runtime_snapshot.last_http_proxy_port, &state.paths.proxy_pac_file,
+      ) {
         let _ = state
             .log_if_enabled(
                 LogSource::Connection,
@@ -453,6 +497,7 @@ async fn disconnect_locked(app: &AppHandle, state: &AppState) -> AppResult<Conne
                 format!("Unable to restore previous WinHTTP proxy state: {}", error.message),
             )
             .await;
+      }
     }
 
     if let Some(session) = session {
@@ -463,7 +508,9 @@ async fn disconnect_locked(app: &AppHandle, state: &AppState) -> AppResult<Conne
         let _ = tokio::fs::remove_file(&state.paths.temp_config_file).await;
     }
 
-    state.runtime_state.clear().await?;
+    if proxy_error.is_none() {
+        state.runtime_state.clear().await?;
+    }
     let disconnected = ConnectionStatusPayload {
         state: ConnectionState::Disconnected,
         active_profile_id: None,
@@ -534,6 +581,12 @@ fn spawn_session_monitor(
                         break;
                     }
                     let state = app.state::<AppState>();
+                    let operation_guard = state.connection.op_lock.lock().await;
+                    if stop_requested.load(Ordering::SeqCst)
+                        || state.connection.session.lock().await.as_ref().map(|session| session.id) != Some(session_id) {
+                        break;
+                    }
+                    stop_requested.store(true, Ordering::SeqCst);
                     let _ = state
                         .log_if_enabled(
                             LogSource::Connection,
@@ -544,16 +597,12 @@ fn spawn_session_monitor(
                             ),
                         )
                         .await;
-                    let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
-                    let settings_snapshot = state.settings_store.get().await;
-                    if matches!(settings_snapshot.connection_mode, ConnectionMode::Tun) {
-                        let _ =
-                            tun_route_manager::disable_full_tunnel(&settings_snapshot.tun_interface_name);
-                    }
                     let runtime_snapshot = state.runtime_state.snapshot().await;
-                    let _ = proxy_manager_windows::restore_winhttp_proxy(
-                        runtime_snapshot.last_winhttp_dump.as_deref(),
+                    let _ = proxy_manager_windows::restore_owned_proxy(runtime_snapshot.last_http_proxy_port, &state.paths.proxy_pac_file, runtime_snapshot.previous_system_proxy.as_ref());
+                    let _ = proxy_manager_windows::restore_owned_winhttp(
+                        runtime_snapshot.last_winhttp_dump.as_deref(), runtime_snapshot.last_http_proxy_port, &state.paths.proxy_pac_file,
                     );
+                    drop(operation_guard);
                     let _ = handle_unexpected_exit(&app, state.inner(), session_id, profile_id.clone()).await;
                     break;
                 }
@@ -754,6 +803,19 @@ fn pick_two_distinct_ports() -> AppResult<(u16, u16)> {
     ))
 }
 
+fn pick_two_ports_distinct_from(first: u16, second: u16) -> AppResult<(u16, u16)> {
+    for _ in 0..10 {
+        let a = portpicker::pick_unused_port()
+            .ok_or_else(|| AppError::process("Unable to reserve a speed probe port", None))?;
+        let b = portpicker::pick_unused_port()
+            .ok_or_else(|| AppError::process("Unable to reserve a speed API port", None))?;
+        if a != b && a != first && a != second && b != first && b != second {
+            return Ok((a, b));
+        }
+    }
+    Err(AppError::process("Unable to pick distinct balancing ports", None))
+}
+
 async fn run_connection_test(app: &AppHandle, state: &AppState, profile: &Profile) -> AppResult<()> {
     let settings = state.settings_store.get().await;
     let tun_mode = matches!(settings.connection_mode, ConnectionMode::Tun);
@@ -775,6 +837,22 @@ async fn run_connection_test(app: &AppHandle, state: &AppState, profile: &Profil
         .temp_config_file
         .with_file_name(format!("xray-test-{}.json", profile.id));
     tokio::fs::write(&test_config_path, config).await?;
+
+    if tun_mode {
+        // Starting a second live TUN for a profile test would alter system routes.
+        let output = Command::new(&state.paths.sidecar_path)
+            .args(["run", "-test", "-c"])
+            .arg(&test_config_path)
+            .current_dir(state.paths.sidecar_path.parent().unwrap())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let _ = tokio::fs::remove_file(&test_config_path).await;
+        let output = output.map_err(|error| AppError::process("Failed to validate Xray config", Some(error.to_string())))?;
+        if !output.status.success() {
+            return Err(AppError::process("Xray rejected the TUN configuration", Some(String::from_utf8_lossy(&output.stderr).to_string())));
+        }
+        return Ok(());
+    }
 
     let mut command = Command::new(&state.paths.sidecar_path);
     if let Some(sidecar_dir) = state.paths.sidecar_path.parent() {

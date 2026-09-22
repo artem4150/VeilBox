@@ -4,6 +4,7 @@ export type ConnectionMode = 'systemProxy' | 'tun';
 export type SplitTunnelMode = 'disabled' | 'bypassListed' | 'proxyListed';
 export type ProfileSource = 'manual' | 'subscription';
 export type ProfileEngine = 'xray' | 'amneziawg';
+export type ProxyProtocol = 'vless' | 'shadowsocks' | 'hysteria2';
 export type NetworkType = 'raw' | 'tcp' | 'ws' | 'grpc' | 'xhttp' | 'httpupgrade' | 'kcp';
 export type SecurityType = 'none' | 'reality' | 'tls';
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -33,6 +34,10 @@ export interface Profile {
   id: string;
   name: string;
   engine: ProfileEngine;
+  protocol: ProxyProtocol;
+  password: string | null;
+  method: string | null;
+  obfsPassword: string | null;
   serverAddress: string;
   port: number;
   uuid: string;
@@ -73,6 +78,7 @@ export interface Settings {
   launchAtStartup: boolean;
   minimizeToTray: boolean;
   autoReconnect: boolean;
+  balanceServers: boolean;
   theme: ThemeMode;
   language: AppLanguage;
   debugLogging: boolean;
@@ -83,6 +89,7 @@ export interface Settings {
   splitTunnelMode: SplitTunnelMode;
   splitTunnelDomains: string[];
   splitTunnelIps: string[];
+  splitTunnelProcesses: string[];
   lastSelectedProfileId: string | null;
 }
 
@@ -163,6 +170,10 @@ export interface ToastMessage {
 
 export interface ManualProfileDraft {
   engine?: 'xray';
+  protocol: ProxyProtocol;
+  password: string;
+  method: string;
+  obfsPassword: string;
   name: string;
   serverAddress: string;
   port: number;

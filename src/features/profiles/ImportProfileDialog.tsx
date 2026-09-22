@@ -5,7 +5,7 @@ import { Field, TextArea } from '../../components/Field';
 export function ImportProfileDialog({
   onImport,
 }: {
-  onImport: (uri: string) => Promise<void>;
+  onImport: (uri: string) => Promise<boolean>;
 }) {
   const [uri, setUri] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,8 +17,9 @@ export function ImportProfileDialog({
 
     setLoading(true);
     try {
-      await onImport(uri.trim());
-      setUri('');
+      if (await onImport(uri.trim())) {
+        setUri('');
+      }
     } finally {
       setLoading(false);
     }
@@ -28,11 +29,11 @@ export function ImportProfileDialog({
     <div className="import-card">
       <div className="section-title-row">
         <div>
-          <h3>Импорт `vless://`</h3>
+          <h3>Import VLESS / Shadowsocks / Hysteria2</h3>
           <p>Некорректные ссылки отклоняются с явной ошибкой парсера.</p>
         </div>
       </div>
-      <Field label="VLESS URI">
+      <Field label="vless://, ss://, hy2:// or hysteria2:// URI">
         <TextArea
           rows={4}
           value={uri}

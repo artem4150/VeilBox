@@ -1910,6 +1910,10 @@ html[data-theme='light'] .app-shell {
   font-weight: 600;
 }
 
+.dashboard-balance-button.is-active {
+  color: var(--primary);
+}
+
 .dashboard-toolbar-button:disabled {
   opacity: 0.5;
   cursor: wait;

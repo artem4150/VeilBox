@@ -11,8 +11,10 @@ mod models;
 mod network_interface_manager;
 mod profile_geo;
 mod profile_store;
+mod proxy_uri_parser;
 mod proxy_manager_windows;
 mod settings_store;
+mod speed_balancer;
 mod state;
 mod subscription_store;
 mod subscription_import;
@@ -179,10 +181,10 @@ pub fn run() {
                     tauri::async_runtime::block_on(async { state.runtime_state.snapshot().await });
                 let settings_snapshot =
                     tauri::async_runtime::block_on(async { state.settings_store.get().await });
-                let _ = proxy_manager_windows::clear_proxy(Some(&state.paths.proxy_pac_file));
-                let _ = proxy_manager_windows::restore_winhttp_proxy(
-                    runtime_snapshot.last_winhttp_dump.as_deref(),
-                );
+                let proxy_restored = proxy_manager_windows::restore_owned_proxy(runtime_snapshot.last_http_proxy_port, &state.paths.proxy_pac_file, runtime_snapshot.previous_system_proxy.as_ref()).is_ok();
+                let winhttp_restored = proxy_manager_windows::restore_owned_winhttp(
+                    runtime_snapshot.last_winhttp_dump.as_deref(), runtime_snapshot.last_http_proxy_port, &state.paths.proxy_pac_file,
+                ).is_ok();
                 if matches!(settings_snapshot.connection_mode, crate::models::ConnectionMode::Tun) {
                     let _ = crate::tun_route_manager::disable_full_tunnel(
                         &settings_snapshot.tun_interface_name,
@@ -198,7 +200,9 @@ pub fn run() {
                     s.stop_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                     let _ = s.child.blocking_lock().kill();
                 }
-                let _ = tauri::async_runtime::block_on(state.runtime_state.clear());
+                if proxy_restored && winhttp_restored {
+                    let _ = tauri::async_runtime::block_on(state.runtime_state.clear());
+                }
             }
         });
 }

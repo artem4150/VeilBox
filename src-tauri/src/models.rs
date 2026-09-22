@@ -37,6 +37,15 @@ pub enum ProfileEngine {
     Amneziawg,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyProtocol {
+    #[default]
+    Vless,
+    Shadowsocks,
+    Hysteria2,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AmneziaParam {
@@ -68,6 +77,14 @@ pub struct Profile {
     pub name: String,
     #[serde(default)]
     pub engine: ProfileEngine,
+    #[serde(default)]
+    pub protocol: ProxyProtocol,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub obfs_password: Option<String>,
     pub server_address: String,
     pub port: u16,
     pub uuid: String,
@@ -107,6 +124,14 @@ pub struct ProfileInput {
     pub name: String,
     #[serde(default)]
     pub engine: ProfileEngine,
+    #[serde(default)]
+    pub protocol: ProxyProtocol,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+    #[serde(default)]
+    pub obfs_password: Option<String>,
     pub server_address: String,
     pub port: u16,
     pub uuid: String,
@@ -155,6 +180,7 @@ pub struct Settings {
     pub launch_at_startup: bool,
     pub minimize_to_tray: bool,
     pub auto_reconnect: bool,
+    pub balance_servers: bool,
     pub theme: ThemeMode,
     pub language: AppLanguage,
     pub debug_logging: bool,
@@ -166,6 +192,7 @@ pub struct Settings {
     pub split_tunnel_mode: SplitTunnelMode,
     pub split_tunnel_domains: Vec<String>,
     pub split_tunnel_ips: Vec<String>,
+    pub split_tunnel_processes: Vec<String>,
     pub last_selected_profile_id: Option<String>,
 }
 
@@ -175,6 +202,7 @@ impl Default for Settings {
             launch_at_startup: false,
             minimize_to_tray: true,
             auto_reconnect: true,
+            balance_servers: false,
             theme: ThemeMode::Light,
             language: AppLanguage::En,
             debug_logging: false,
@@ -185,6 +213,7 @@ impl Default for Settings {
             split_tunnel_mode: SplitTunnelMode::Disabled,
             split_tunnel_domains: Vec::new(),
             split_tunnel_ips: Vec::new(),
+            split_tunnel_processes: Vec::new(),
             last_selected_profile_id: None,
         }
     }
@@ -196,6 +225,7 @@ pub struct SettingsPatch {
     pub launch_at_startup: Option<bool>,
     pub minimize_to_tray: Option<bool>,
     pub auto_reconnect: Option<bool>,
+    pub balance_servers: Option<bool>,
     pub theme: Option<ThemeMode>,
     pub language: Option<AppLanguage>,
     pub debug_logging: Option<bool>,
@@ -206,6 +236,7 @@ pub struct SettingsPatch {
     pub split_tunnel_mode: Option<SplitTunnelMode>,
     pub split_tunnel_domains: Option<Vec<String>>,
     pub split_tunnel_ips: Option<Vec<String>>,
+    pub split_tunnel_processes: Option<Vec<String>>,
     pub last_selected_profile_id: Option<Option<String>>,
 }
 
@@ -393,6 +424,16 @@ pub struct RuntimeSessionState {
     pub last_socks_proxy_port: Option<u16>,
     pub last_proxy_string: Option<String>,
     pub last_winhttp_dump: Option<String>,
+    pub previous_system_proxy: Option<PreviousSystemProxy>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviousSystemProxy {
+    pub enabled: bool,
+    pub server: Option<String>,
+    pub override_list: Option<String>,
+    pub auto_config_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -14,7 +14,7 @@ use crate::{
     profile_geo,
     state::AppState,
     subscription_import,
-    vless_parser::parse_vless_uri,
+    proxy_uri_parser::{parse_proxy_uri, parse_shadowsocks_json},
 };
 
 #[tauri::command]
@@ -72,7 +72,7 @@ pub async fn import_vless_uri(
     state: State<'_, AppState>,
     uri: String,
 ) -> Result<Profile, AppError> {
-    let imported = parse_vless_uri(&uri)?;
+    let imported = parse_proxy_uri(&uri)?;
     state.profile_store.save(imported).await
 }
 
@@ -84,18 +84,21 @@ pub async fn import_profiles_json(
     let value: serde_json::Value = serde_json::from_str(json.trim())
         .map_err(|error| AppError::validation(format!("Invalid JSON: {}", error)))?;
 
-    let inputs: Vec<ProfileInput> = if value.is_array() {
-        serde_json::from_value(value)
-            .map_err(|error| AppError::validation(format!("Unsupported profile JSON: {}", error)))?
-    } else if let Some(profiles) = value.get("profiles") {
-        serde_json::from_value(profiles.clone())
-            .map_err(|error| AppError::validation(format!("Unsupported profile JSON: {}", error)))?
+    let entries = if let Some(items) = value.as_array() {
+        items.clone()
+    } else if let Some(items) = value.get("profiles").or_else(|| value.get("proxies")).and_then(|items| items.as_array()) {
+        items.clone()
     } else {
-        vec![
-            serde_json::from_value(value)
-                .map_err(|error| AppError::validation(format!("Unsupported profile JSON: {}", error)))?,
-        ]
+        vec![value]
     };
+    let mut inputs = Vec::<ProfileInput>::with_capacity(entries.len());
+    for entry in entries {
+        let input = serde_json::from_value(entry.clone())
+            .ok()
+            .or_else(|| parse_shadowsocks_json(&entry))
+            .ok_or_else(|| AppError::validation("Unsupported profile JSON entry (expected VeilBox profile or Shadowsocks config)"))?;
+        inputs.push(input);
+    }
 
     let mut saved = Vec::with_capacity(inputs.len());
     for input in inputs {
@@ -258,7 +261,11 @@ pub async fn clear_logs(state: State<'_, AppState>) -> Result<(), AppError> {
 pub async fn get_profile_latencies(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProfileLatency>, AppError> {
-    Ok(latency_manager::measure_profiles(state.profile_store.list().await).await)
+    Ok(latency_manager::measure_profiles(
+        state.profile_store.list().await,
+        state.paths.sidecar_path.clone(),
+        state.paths.temp_config_file.clone(),
+    ).await)
 }
 
 #[tauri::command]

@@ -60,7 +60,7 @@ export function ProfileListItem({
       </div>
 
       <div className="dashboard-profile-actions">
-        <span className={`latency-chip latency-${latencyTone}`}>{formatLatency(latency, language)}</span>
+        <span className={`latency-chip latency-${latencyTone}`} title={latency?.message ?? undefined}>{formatLatency(latency, language)}</span>
         <button
           type="button"
           className="dashboard-delete-icon"

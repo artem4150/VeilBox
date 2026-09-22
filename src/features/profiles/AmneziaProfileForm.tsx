@@ -27,6 +27,10 @@ export function AmneziaProfileForm({ profile, onSave, onCancel }: AmneziaProfile
       await onSave({
         id: profile.id,
         engine: 'amneziawg',
+        protocol: profile.protocol,
+        password: profile.password,
+        method: profile.method,
+        obfsPassword: profile.obfsPassword,
         name: name.trim() || profile.name,
         serverAddress: profile.serverAddress,
         port: profile.port,

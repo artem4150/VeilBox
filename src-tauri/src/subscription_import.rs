@@ -10,16 +10,16 @@ use url::Url;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{NetworkType, ProfileEngine, ProfileInput, ProfileSource, SecurityType},
-    vless_parser::parse_vless_uri,
+    models::{NetworkType, ProfileEngine, ProfileInput, ProfileSource, ProxyProtocol, SecurityType},
+    proxy_uri_parser::{parse_proxy_uri, parse_shadowsocks_json},
 };
 
 static HREF_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)(?:href|src)\s*=\s*["']([^"'#\s>]+)["']"#).unwrap());
 static URL_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"https?://[^\s"'<>`]+"#).unwrap());
-static VLESS_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)vless://[^\s"'<>`]+"#).unwrap());
+static PROXY_URI_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)(?:vless|ss|hy2|hysteria2)://[^\s"'<>`]+"#).unwrap());
 
 pub struct ImportedSubscriptionPayload {
     pub name: String,
@@ -177,21 +177,17 @@ fn parse_subscription_payloads(
     let mut imported = Vec::<ProfileInput>::new();
 
     for body in &bodies {
-        let links = extract_vless_links(body);
+        let links = extract_proxy_links(body);
         for link in links {
             if !unique_links.insert(link.clone()) {
                 continue;
             }
-            if let Ok(mut profile) = parse_vless_uri(&link) {
+            if let Ok(mut profile) = parse_proxy_uri(&link) {
                 profile.source = Some(ProfileSource::Subscription);
                 profile.source_label = source_label.clone();
                 imported.push(profile);
             }
         }
-    }
-
-    if !imported.is_empty() {
-        return Ok(imported);
     }
 
     for body in &bodies {
@@ -209,7 +205,7 @@ fn parse_subscription_payloads(
     };
     Err(AppError::new(
         "VALIDATION_ERROR",
-        "Subscription does not contain any supported VLESS entries",
+        "Subscription does not contain any supported VLESS, Shadowsocks or Hysteria2 entries",
         details,
     ))
 }
@@ -293,12 +289,12 @@ fn extract_nested_subscription_urls(raw: &str, base_url: &Url) -> Vec<Url> {
 
 fn decode_subscription_body(raw: &str) -> String {
     let trimmed = raw.trim();
-    if trimmed.to_ascii_lowercase().contains("vless://") || looks_like_json(trimmed) {
+    if contains_proxy_uri(trimmed) || looks_like_structured_payload(trimmed) {
         return trimmed.to_string();
     }
     if let Ok(decoded_url) = urlencoding::decode(trimmed) {
         let decoded_url = decoded_url.to_string();
-        if decoded_url.to_ascii_lowercase().contains("vless://") || looks_like_json(&decoded_url) {
+        if contains_proxy_uri(&decoded_url) || looks_like_structured_payload(&decoded_url) {
             return decoded_url;
         }
     }
@@ -314,13 +310,13 @@ fn decode_subscription_body(raw: &str) -> String {
     for engine in engines {
         if let Ok(bytes) = engine.decode(compact.as_bytes()) {
             if let Ok(decoded) = String::from_utf8(bytes) {
-                if decoded.to_ascii_lowercase().contains("vless://") || looks_like_json(&decoded) {
+                if contains_proxy_uri(&decoded) || looks_like_structured_payload(&decoded) {
                     return decoded;
                 }
                 if let Ok(url_decoded) = urlencoding::decode(&decoded) {
                     let url_decoded = url_decoded.to_string();
-                    if url_decoded.to_ascii_lowercase().contains("vless://")
-                        || looks_like_json(&url_decoded)
+                    if contains_proxy_uri(&url_decoded)
+                        || looks_like_structured_payload(&url_decoded)
                     {
                         return url_decoded;
                     }
@@ -332,10 +328,14 @@ fn decode_subscription_body(raw: &str) -> String {
     trimmed.to_string()
 }
 
-fn extract_vless_links(raw: &str) -> Vec<String> {
+fn contains_proxy_uri(value: &str) -> bool {
+    PROXY_URI_REGEX.is_match(value)
+}
+
+fn extract_proxy_links(raw: &str) -> Vec<String> {
     let mut links = HashSet::<String>::new();
 
-    for matched in VLESS_REGEX.find_iter(raw) {
+    for matched in PROXY_URI_REGEX.find_iter(raw) {
         let link = matched
             .as_str()
             .trim_end_matches(|char| matches!(char, ')' | ']' | '}' | ',' | ';' | '.'))
@@ -347,7 +347,7 @@ fn extract_vless_links(raw: &str) -> Vec<String> {
 
     for line in raw.lines() {
         let token = line.trim();
-        if token.to_ascii_lowercase().starts_with("vless://") {
+        if ["vless://", "ss://", "hy2://", "hysteria2://"].iter().any(|prefix| token.to_ascii_lowercase().starts_with(prefix)) {
             let link = token
                 .trim_matches(|char| matches!(char, '"' | '\'' | '`'))
                 .trim_end_matches(|char| matches!(char, ')' | ']' | '}' | ',' | ';' | '.'))
@@ -376,10 +376,17 @@ fn looks_like_json(value: &str) -> bool {
     trimmed.starts_with('{') || trimmed.starts_with('[')
 }
 
+fn looks_like_structured_payload(value: &str) -> bool {
+    looks_like_json(value) || value.lines().any(|line| line.trim_start().starts_with("proxies:"))
+}
+
 fn parse_xray_subscription_json(raw: &str, source_label: Option<String>) -> Vec<ProfileInput> {
-    let value: Value = match serde_json::from_str(raw.trim()) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
+    let value: Value = if let Ok(value) = serde_json::from_str(raw.trim()) {
+        value
+    } else if let Ok(value) = serde_saphyr::from_str(raw.trim()) {
+        value
+    } else {
+        return Vec::new();
     };
 
     let items = match value {
@@ -388,10 +395,33 @@ fn parse_xray_subscription_json(raw: &str, source_label: Option<String>) -> Vec<
         _ => return Vec::new(),
     };
 
-    items
-        .into_iter()
-        .filter_map(|item| parse_xray_profile_object(item, source_label.clone()))
-        .collect()
+    let mut profiles = Vec::new();
+    for item in items {
+        let standalone = item.get("proxies").and_then(Value::as_array);
+        if let Some(entries) = standalone {
+            for entry in entries {
+                if let Some(mut profile) = parse_shadowsocks_json(entry) {
+                    profile.source = Some(ProfileSource::Subscription);
+                    profile.source_label = source_label.clone();
+                    profiles.push(profile);
+                }
+            }
+        } else if let Some(mut profile) = parse_shadowsocks_json(&item) {
+            profile.source = Some(ProfileSource::Subscription);
+            profile.source_label = source_label.clone();
+            profiles.push(profile);
+        }
+        let Some(outbounds) = item.get("outbounds").and_then(Value::as_array) else { continue; };
+        for outbound in outbounds {
+            if !matches!(outbound.get("protocol").and_then(Value::as_str), Some("vless" | "shadowsocks" | "hysteria")) { continue; }
+            let mut single = item.clone();
+            single["outbounds"] = serde_json::json!([outbound]);
+            if let Some(profile) = parse_xray_profile_object(single, source_label.clone()) {
+                profiles.push(profile);
+            }
+        }
+    }
+    profiles
 }
 
 fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Option<ProfileInput> {
@@ -417,8 +447,12 @@ fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Opti
         .and_then(|outbounds| {
             outbounds
                 .iter()
-                .find(|outbound| outbound.get("protocol").and_then(Value::as_str) == Some("vless"))
+                .find(|outbound| matches!(outbound.get("protocol").and_then(Value::as_str), Some("vless" | "shadowsocks" | "hysteria")))
         })?;
+
+    if outbound.get("protocol").and_then(Value::as_str) != Some("vless") {
+        return parse_other_xray_outbound(outbound, remarks, source_label);
+    }
 
     let vnext = outbound
         .get("settings")
@@ -576,6 +610,10 @@ fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Opti
         id: None,
         name: remarks,
         engine: ProfileEngine::Xray,
+        protocol: Default::default(),
+        password: None,
+        method: None,
+        obfs_password: None,
         server_address,
         port,
         uuid,
@@ -601,6 +639,108 @@ fn parse_xray_profile_object(value: Value, source_label: Option<String>) -> Opti
         subscription_id: None,
         amnezia_config: None,
     })
+}
+
+fn parse_other_xray_outbound(outbound: &Value, name: String, source_label: Option<String>) -> Option<ProfileInput> {
+    let settings = outbound.get("settings")?;
+    let (protocol, server_address, port, password, method, obfs_password, security_type, sni, allow_insecure, alpn) =
+        match outbound.get("protocol")?.as_str()? {
+            "shadowsocks" => (
+                ProxyProtocol::Shadowsocks,
+                settings.get("address")?.as_str()?.to_string(), u16::try_from(settings.get("port")?.as_u64()?).ok()?,
+                settings.get("password")?.as_str()?.to_string(),
+                Some(settings.get("method")?.as_str()?.to_string()), None, SecurityType::None,
+                None, false, Vec::new(),
+            ),
+            "hysteria" if settings.get("version")?.as_u64()? == 2 => {
+                let stream = outbound.get("streamSettings")?;
+                let transport = stream.get("hysteriaSettings")?;
+                if transport.get("version")?.as_u64()? != 2 || stream.get("security")?.as_str()? != "tls" { return None; }
+                let tls = stream.get("tlsSettings");
+                (
+                    ProxyProtocol::Hysteria2,
+                    settings.get("address")?.as_str()?.to_string(), u16::try_from(settings.get("port")?.as_u64()?).ok()?,
+                    transport.get("auth")?.as_str()?.to_string(), None,
+                    stream.get("finalmask").and_then(|value| value.get("udp")).and_then(Value::as_array)
+                        .and_then(|items| items.iter().find(|item| item.get("type").and_then(Value::as_str) == Some("salamander")))
+                        .and_then(|item| item.get("settings")).and_then(|value| value.get("password"))
+                        .and_then(Value::as_str).map(str::to_string),
+                    SecurityType::Tls,
+                    tls.and_then(|value| value.get("serverName")).and_then(Value::as_str).map(str::to_string),
+                    tls.and_then(|value| value.get("allowInsecure")).and_then(Value::as_bool).unwrap_or(false),
+                    tls.and_then(|value| value.get("alpn")).and_then(Value::as_array)
+                        .map(|values| values.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default(),
+                )
+            }
+            _ => return None,
+        };
+    if port == 0 || password.is_empty() { return None; }
+    Some(ProfileInput {
+        id: None, name, engine: ProfileEngine::Xray, protocol, password: Some(password), method, obfs_password,
+        server_address, port, uuid: String::new(), network_type: NetworkType::Raw,
+        security_type, flow: None, sni, fingerprint: None, public_key: None,
+        short_id: None, spider_x: None, path: None, host_header: None,
+        service_name: None, xhttp_mode: None, transport_header_type: None,
+        seed: None, alpn, allow_insecure, remark: None,
+        source: Some(ProfileSource::Subscription), source_label, subscription_id: None,
+        amnezia_config: None,
+    })
+}
+
+#[cfg(test)]
+mod proxy_protocol_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_shadowsocks_only_base64_subscription() {
+        let body = "ss://YWVzLTI1Ni1nY206c2VjcmV0@example.com:8388#Test\n";
+        let encoded = general_purpose::STANDARD.encode(body);
+        assert_eq!(decode_subscription_body(&encoded), body);
+        let profiles = parse_subscription_payloads(vec![encoded, body.to_string()], vec![], None).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].protocol, ProxyProtocol::Shadowsocks);
+    }
+
+    #[test]
+    fn decodes_hysteria_only_base64_subscription() {
+        let body = "hy2://secret@example.com:443#Test";
+        let encoded = general_purpose::STANDARD.encode(body);
+        assert_eq!(decode_subscription_body(&encoded), body);
+    }
+
+    #[test]
+    fn imports_shadowsocks_from_clash_json_subscription() {
+        let body = serde_json::json!({"proxies": [{"type":"ss", "name":"Fast", "server":"example.com", "port":8388, "cipher":"aes-256-gcm", "password":"secret"}]}).to_string();
+        let profiles = parse_subscription_payloads(vec![body], vec![], None).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].protocol, ProxyProtocol::Shadowsocks);
+    }
+
+    #[test]
+    fn imports_shadowsocks_from_clash_yaml_subscription() {
+        let body = "proxies:\n  - name: Fast SS\n    type: ss\n    server: example.com\n    port: 8388\n    cipher: aes-256-gcm\n    password: secret\n";
+        let encoded = general_purpose::STANDARD.encode(body);
+        assert_eq!(decode_subscription_body(&encoded), body);
+        let profiles = parse_subscription_payloads(vec![body.to_string()], vec![], None).unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].protocol, ProxyProtocol::Shadowsocks);
+    }
+
+    #[test]
+    fn imports_multiple_xray_outbound_protocols() {
+        let json = serde_json::json!({
+            "remarks": "mixed",
+            "outbounds": [
+                {"protocol":"shadowsocks", "settings":{"address":"ss.example.com", "port":8388, "method":"aes-256-gcm", "password":"secret"}},
+                {"protocol":"hysteria", "settings":{"version":2, "address":"hy.example.com", "port":443},
+                    "streamSettings":{"security":"tls", "hysteriaSettings":{"version":2, "auth":"secret"}, "tlsSettings":{"serverName":"hy.example.com"}}}
+            ]
+        });
+        let profiles = parse_xray_subscription_json(&json.to_string(), None);
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0].protocol, ProxyProtocol::Shadowsocks);
+        assert_eq!(profiles[1].protocol, ProxyProtocol::Hysteria2);
+    }
 }
 
 fn parse_network_type_from_json(stream_settings: Option<&Value>) -> Option<NetworkType> {

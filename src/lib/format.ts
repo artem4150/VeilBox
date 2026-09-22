@@ -26,12 +26,18 @@ export function profileSubtitle(profile: Profile) {
   if (profile.engine === 'amneziawg') {
     return `${profile.serverAddress}:${profile.port} / AMNEZIAWG`;
   }
+  if (profile.protocol && profile.protocol !== 'vless') {
+    return `${profile.serverAddress}:${profile.port} / ${profile.protocol.toUpperCase()}`;
+  }
   return `${profile.serverAddress}:${profile.port} / ${profile.networkType.toUpperCase()} / ${profile.securityType.toUpperCase()}`;
 }
 
 export function profileTransportLabel(profile: Profile) {
   if (profile.engine === 'amneziawg') {
     return 'AMNEZIAWG';
+  }
+  if (profile.protocol && profile.protocol !== 'vless') {
+    return profile.protocol.toUpperCase();
   }
   return `${profile.networkType.toUpperCase()}/${profile.securityType.toUpperCase()}`;
 }

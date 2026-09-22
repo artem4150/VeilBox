@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{AmneziaConfig, NetworkType, Profile, ProfileEngine, ProfileInput, ProfileSource, SecurityType},
+    models::{AmneziaConfig, NetworkType, Profile, ProfileEngine, ProfileInput, ProfileSource, ProxyProtocol, SecurityType},
 };
 
 pub struct ProfileStore {
@@ -75,6 +75,10 @@ impl ProfileStore {
             id: input.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: input.name.trim().to_string(),
             engine,
+            protocol: input.protocol,
+            password: trim_option(input.password),
+            method: trim_option(input.method),
+            obfs_password: trim_option(input.obfs_password),
             server_address: input.server_address.trim().to_string(),
             port: input.port,
             uuid: input.uuid.trim().to_string(),
@@ -144,6 +148,10 @@ impl ProfileStore {
             id: None,
             name: format!("{} Copy", original.name),
             engine: original.engine,
+            protocol: original.protocol,
+            password: original.password,
+            method: original.method,
+            obfs_password: original.obfs_password,
             server_address: original.server_address,
             port: original.port,
             uuid: original.uuid,
@@ -212,9 +220,27 @@ fn validate_xray_profile_input(input: &ProfileInput) -> AppResult<()> {
     }
     Host::parse(input.server_address.trim())
         .map_err(|_| AppError::validation("Server address is invalid"))?;
-    Uuid::parse_str(input.uuid.trim())?;
     if input.port == 0 {
         return Err(AppError::validation("Port must be between 1 and 65535"));
+    }
+
+    match input.protocol {
+        ProxyProtocol::Shadowsocks => {
+            if trim_option(input.method.clone()).is_none() || trim_option(input.password.clone()).is_none() {
+                return Err(AppError::validation("Shadowsocks method and password are required"));
+            }
+            return Ok(());
+        }
+        ProxyProtocol::Hysteria2 => {
+            if trim_option(input.password.clone()).is_none() {
+                return Err(AppError::validation("Hysteria2 auth password is required"));
+            }
+            if !matches!(input.security_type, SecurityType::Tls) {
+                return Err(AppError::validation("Hysteria2 requires TLS"));
+            }
+            return Ok(());
+        }
+        ProxyProtocol::Vless => { Uuid::parse_str(input.uuid.trim())?; }
     }
 
     match (&input.network_type, &input.security_type) {

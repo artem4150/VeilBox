@@ -48,7 +48,7 @@ export function ProfilesPage() {
         <div>
           <span className="eyebrow">Profiles</span>
           <h1>Profile library</h1>
-          <p>Manual entry and strict `vless://` import with validation.</p>
+          <p>Manual profiles and validated VLESS, Shadowsocks, Hysteria2 URI import.</p>
         </div>
       </div>
 

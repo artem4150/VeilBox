@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import {
-  countryFlagEmojiUrl,
+  countryFlagAssetUrl,
   countryFlagFallback,
   normalizeCountryCode,
 } from '../lib/country';
@@ -12,20 +13,21 @@ interface CountryFlagProps {
 
 export function CountryFlag({ code, title, className = 'profile-flag' }: CountryFlagProps) {
   const normalized = normalizeCountryCode(code);
-  const src = countryFlagEmojiUrl(normalized);
+  const src = countryFlagAssetUrl(normalized);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
 
   return (
     <span className={className} title={title}>
-      {src ? (
+      {src && failedSource !== src ? (
         <img
           src={src}
           alt={normalized ?? 'flag'}
           className="profile-flag-image"
           draggable={false}
-          referrerPolicy="no-referrer"
+          onError={() => setFailedSource(src)}
         />
       ) : (
-        countryFlagFallback()
+        normalized ?? countryFlagFallback()
       )}
     </span>
   );

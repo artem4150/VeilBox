@@ -10,6 +10,10 @@ interface ProfileFormProps {
 }
 
 const emptyDraft: ManualProfileDraft = {
+  protocol: 'vless',
+  password: '',
+  method: 'aes-256-gcm',
+  obfsPassword: '',
   name: '',
   serverAddress: '',
   port: 443,
@@ -40,6 +44,10 @@ function normalizeDraft(profile?: Profile | null): ManualProfileDraft {
 
   return {
     name: profile.name,
+    protocol: profile.protocol ?? 'vless',
+    password: profile.password ?? '',
+    method: profile.method ?? 'aes-256-gcm',
+    obfsPassword: profile.obfsPassword ?? '',
     serverAddress: profile.serverAddress,
     port: profile.port,
     uuid: profile.uuid,
@@ -86,6 +94,9 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         id: profile?.id,
         engine: 'xray',
         ...draft,
+        password: draft.password || null,
+        method: draft.protocol === 'shadowsocks' ? draft.method || null : null,
+        obfsPassword: draft.protocol === 'hysteria2' ? draft.obfsPassword || null : null,
         flow: draft.flow || null,
         sni: draft.sni || null,
         fingerprint: draft.fingerprint || null,
@@ -111,11 +122,23 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
       <div className="section-title-row">
         <div>
           <h3>{title}</h3>
-          <p>Поддерживаются RAW, TCP, WS, gRPC, XHTTP, HTTPUpgrade и mKCP для VLESS.</p>
+          <p>VLESS, Shadowsocks и Hysteria2 через Xray.</p>
         </div>
       </div>
 
       <div className="field-grid">
+        <Field label="Protocol">
+          <select className="select" value={draft.protocol}
+            onChange={(event) => {
+              const protocol = event.target.value as ManualProfileDraft['protocol'];
+              setDraft((current) => ({...current, protocol,
+                securityType: protocol === 'hysteria2' ? 'tls' : protocol === 'shadowsocks' ? 'none' : current.securityType}));
+            }}>
+            <option value="vless">VLESS</option>
+            <option value="shadowsocks">Shadowsocks</option>
+            <option value="hysteria2">Hysteria2</option>
+          </select>
+        </Field>
         <Field label="Имя профиля">
           <TextInput value={draft.name} onChange={(event) => update('name', event.target.value)} />
         </Field>
@@ -134,9 +157,19 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
             onChange={(event) => update('port', Number(event.target.value))}
           />
         </Field>
-        <Field label="UUID">
+        {draft.protocol === 'vless' ? <Field label="UUID">
           <TextInput value={draft.uuid} onChange={(event) => update('uuid', event.target.value)} />
-        </Field>
+        </Field> : null}
+        {draft.protocol !== 'vless' ? <Field label={draft.protocol === 'shadowsocks' ? 'Password' : 'Auth password'}>
+          <TextInput type="password" value={draft.password} onChange={(event) => update('password', event.target.value)} />
+        </Field> : null}
+        {draft.protocol === 'shadowsocks' ? <Field label="Cipher method">
+          <TextInput value={draft.method} onChange={(event) => update('method', event.target.value)} />
+        </Field> : null}
+        {draft.protocol === 'hysteria2' ? <Field label="Salamander obfs password (optional)">
+          <TextInput type="password" value={draft.obfsPassword} onChange={(event) => update('obfsPassword', event.target.value)} />
+        </Field> : null}
+        {draft.protocol === 'vless' ? <>
         <Field label="Тип транспорта">
           <select
             className="select"
@@ -235,7 +268,11 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         <Field label="Seed">
           <TextInput value={draft.seed} onChange={(event) => update('seed', event.target.value)} />
         </Field>
-        <Field label="ALPN" hint="Через запятую, например h2,http/1.1">
+        </> : null}
+        {draft.protocol === 'hysteria2' ? <Field label="SNI">
+          <TextInput value={draft.sni} onChange={(event) => update('sni', event.target.value)} />
+        </Field> : null}
+        {draft.protocol !== 'shadowsocks' ? <Field label="ALPN" hint="Через запятую, например h2,http/1.1">
           <TextInput
             value={draft.alpn.join(',')}
             onChange={(event) =>
@@ -248,7 +285,7 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
               )
             }
           />
-        </Field>
+        </Field> : null}
       </div>
 
       <Field label="Описание / remark">
@@ -259,14 +296,14 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         />
       </Field>
 
-      <label className="checkbox-row">
+      {draft.protocol !== 'shadowsocks' ? <label className="checkbox-row">
         <input
           type="checkbox"
           checked={draft.allowInsecure}
           onChange={(event) => update('allowInsecure', event.target.checked)}
         />
         <span>Разрешить небезопасную TLS-проверку</span>
-      </label>
+      </label> : null}
 
       <div className="button-row">
         <Button onClick={() => void submit()} disabled={saving}>

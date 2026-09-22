@@ -46,7 +46,9 @@ const AI_DOMAINS = [
   'copilot.microsoft.com',
   'grok.com',
 ];
+const CODEX_DOMAINS = ['chatgpt.com', 'openai.com', 'oaistatic.com', 'oaiusercontent.com'];
 const GEO_TUN_PRESETS = [
+  { key: 'geoip:ru', label: { ru: 'Сайты РФ напрямую', en: 'Russian sites direct' }, domains: ['domain:ru', 'domain:рф', 'domain:su'], ips: ['geoip:ru'] },
   { key: 'geosite:private', label: { ru: 'Geo private', en: 'Geo private' }, domains: ['geosite:private'], ips: ['geoip:private'] },
   { key: 'geosite:category-ads-all', label: { ru: 'Geo ads', en: 'Geo ads' }, domains: ['geosite:category-ads-all'], ips: [] },
   { key: 'geosite:netflix', label: { ru: 'Geo Netflix', en: 'Geo Netflix' }, domains: ['geosite:netflix'], ips: [] },
@@ -82,6 +84,7 @@ export function SettingsPage() {
     settings.splitTunnelDomains.join('\n'),
   );
   const [splitIpsDraft, setSplitIpsDraft] = useState(settings.splitTunnelIps.join('\n'));
+  const [splitProcessesDraft, setSplitProcessesDraft] = useState(settings.splitTunnelProcesses.join('\n'));
 
   const hasSelectedInterface = networkInterfaces.some(
     (networkInterface) => networkInterface.name === settings.tunOutboundInterface,
@@ -98,6 +101,10 @@ export function SettingsPage() {
   useEffect(() => {
     setSplitIpsDraft(settings.splitTunnelIps.join('\n'));
   }, [settings.splitTunnelIps]);
+
+  useEffect(() => {
+    setSplitProcessesDraft(settings.splitTunnelProcesses.join('\n'));
+  }, [settings.splitTunnelProcesses]);
 
   useEffect(() => {
     let active = true;
@@ -239,6 +246,12 @@ export function SettingsPage() {
       icon: Cable,
       title: tx(language, 'Автопереподключение', 'Auto reconnect'),
       hint: tx(language, 'Восстановление после падения Xray', 'Recover after Xray crash'),
+    },
+    {
+      key: 'balanceServers' as const,
+      icon: Route,
+      title: tx(language, 'Балансировка серверов', 'Server balancing'),
+      hint: tx(language, 'Xray проверяет доступность и задержку всех VLESS-профилей каждые 10 секунд', 'Xray probes all VLESS profiles every 10 seconds and selects the lowest latency'),
     },
     {
       key: 'debugLogging' as const,
@@ -478,8 +491,19 @@ export function SettingsPage() {
                     <Bot size={15} />
                     <span>{tx(language, 'AI сервисы', 'AI services')}</span>
                   </button>
+                  {settings.splitTunnelMode === 'proxyListed' ? (
+                    <button
+                      type="button"
+                      className="settings-preset-chip"
+                      title={language === 'ru' ? 'Отправлять домены Codex через VPN' : 'Route Codex domains through VPN'}
+                      onClick={() => void applyPreset(CODEX_DOMAINS, [])}
+                    >
+                      <Bot size={15} />
+                      <span>{language === 'ru' ? 'Codex через VPN' : 'Codex via VPN'}</span>
+                    </button>
+                  ) : null}
                   {settings.connectionMode === 'tun'
-                    ? GEO_TUN_PRESETS.map((preset) => (
+                    ? GEO_TUN_PRESETS.filter((preset) => preset.key !== 'geoip:ru' || settings.splitTunnelMode === 'bypassListed').map((preset) => (
                         <button
                           key={preset.key}
                           type="button"
@@ -501,6 +525,23 @@ export function SettingsPage() {
                 </div>
 
                 <div className="settings-inline-grid">
+                  {settings.connectionMode === 'tun' ? (
+                    <label className="settings-inline-field settings-inline-field-wide">
+                      <span>{tx(language, 'Приложения (.exe)', 'Applications (.exe)')}</span>
+                      <TextArea
+                        value={splitProcessesDraft}
+                        placeholder={'telegram.exe\nC:/Program Files/Browser/browser.exe'}
+                        onChange={(event) => setSplitProcessesDraft(event.target.value)}
+                        onBlur={() => {
+                          const next = splitProcessesDraft.split(/[\n;]+/).map((item) => item.trim()).filter(Boolean);
+                          if (next.join('\n') !== settings.splitTunnelProcesses.join('\n')) {
+                            void saveSettings({ splitTunnelProcesses: next });
+                          }
+                        }}
+                      />
+                      <em>{tx(language, 'В режиме «Только список» эти процессы используют VPN, остальные — прямое соединение.', 'In Only listed mode these processes use VPN; other applications connect directly.')}</em>
+                    </label>
+                  ) : null}
                   <label className="settings-inline-field settings-inline-field-wide">
                     <span>{tx(language, 'Домены', 'Domains')}</span>
                     <TextArea
